@@ -8,6 +8,9 @@
 
 ### Fixed
 
+- Selected EPUB monospace fonts now show their family name in Reader settings.
+- EPUB chapter indexing releases mixed-font page-render scratch memory, leaving more heap available for large chapters.
+
 - EPUB ordered, unordered, and nested lists now keep markers and wrapped item text consistently aligned.
 - Underlined EPUB text now draws a continuous line across the spaces between adjacent underlined words.
 - KOReader Sync authentication errors now wrap on-screen instead of running off the display.
