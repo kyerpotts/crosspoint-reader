@@ -418,9 +418,9 @@ bool isWordCharacter(uint32_t cp) {
 void ParsedText::reserveTokenCapacity(const size_t additionalTokens) {
   const size_t requiredSize = words.size() + additionalTokens;
   if (words.capacity() >= requiredSize && wordStyles.capacity() >= requiredSize &&
-      wordContinues.capacity() >= requiredSize && wordNoSpaceBefore.capacity() >= requiredSize &&
-      wordBionicBoundary.capacity() >= requiredSize && wordGuideDotBefore.capacity() >= requiredSize &&
-      wordBackgroundBlack.capacity() >= requiredSize) {
+      wordRoles.capacity() >= requiredSize && wordContinues.capacity() >= requiredSize &&
+      wordNoSpaceBefore.capacity() >= requiredSize && wordBionicBoundary.capacity() >= requiredSize &&
+      wordGuideDotBefore.capacity() >= requiredSize && wordBackgroundBlack.capacity() >= requiredSize) {
     return;
   }
 
@@ -431,6 +431,7 @@ void ParsedText::reserveTokenCapacity(const size_t additionalTokens) {
 
   words.reserve(newCapacity);
   wordStyles.reserve(newCapacity);
+  wordRoles.reserve(newCapacity);
   wordContinues.reserve(newCapacity);
   wordNoSpaceBefore.reserve(newCapacity);
   wordBionicBoundary.reserve(newCapacity);
@@ -439,7 +440,7 @@ void ParsedText::reserveTokenCapacity(const size_t additionalTokens) {
 }
 
 void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle, const bool underline,
-                         const bool attachToPrevious, const bool backgroundBlack) {
+                         const bool attachToPrevious, const bool backgroundBlack, const FontRole fontRole) {
   if (word.empty()) return;
 
   // The device fonts carry no combining-mark positioning, so EPUB text stored in NFD
@@ -463,6 +464,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     reserveTokenCapacity(1);
     words.push_back(std::move(token));
     wordStyles.push_back(tokenStyle);
+    wordRoles.push_back(fontRole);
     wordContinues.push_back(continues);
     wordNoSpaceBefore.push_back(noSpaceBefore);
     wordBionicBoundary.push_back(bionicBoundary);
@@ -513,7 +515,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
   }
 
   // Already-bold text should stay fully bold; bionic splitting would make its suffix regular later.
-  if (!this->bionicReadingEnabled || (baseStyle & EpdFontFamily::BOLD) != 0) {
+  if (!this->bionicReadingEnabled || fontRole == FontRole::Secondary || (baseStyle & EpdFontFamily::BOLD) != 0) {
     pushToken(std::move(word), effectiveAttachToPrevious, effectiveNoSpaceBefore, baseStyle, 0);
     if (wordStartsRtl) {
       hasRtlWord = true;
@@ -688,6 +690,7 @@ bool ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
     const size_t consumed = lineBreakIndices[lineCount - 1];
     words.erase(words.begin(), words.begin() + consumed);
     wordStyles.erase(wordStyles.begin(), wordStyles.begin() + consumed);
+    wordRoles.erase(wordRoles.begin(), wordRoles.begin() + consumed);
     wordContinues.erase(wordContinues.begin(), wordContinues.begin() + consumed);
     wordNoSpaceBefore.erase(wordNoSpaceBefore.begin(), wordNoSpaceBefore.begin() + consumed);
     wordBionicBoundary.erase(wordBionicBoundary.begin(), wordBionicBoundary.begin() + consumed);
@@ -1015,6 +1018,7 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
   const BionicTokenMetadata remainderBionic = computeBionicMetadata(remainder, style, bionicReadingEnabled);
   words.insert(words.begin() + wordIndex + 1, remainder);
   wordStyles.insert(wordStyles.begin() + wordIndex + 1, remainderBionic.style);
+  wordRoles.insert(wordRoles.begin() + wordIndex + 1, wordRoles[wordIndex]);
   wordBackgroundBlack.insert(wordBackgroundBlack.begin() + wordIndex + 1, wordBackgroundBlack[wordIndex]);
   // The hyphen remainder starts fresh on the next line and does not inherit a virtual guide dot.
   wordBionicBoundary.insert(wordBionicBoundary.begin() + wordIndex + 1, remainderBionic.boundary);
@@ -1101,6 +1105,7 @@ bool ParsedText::splitPathologicalTokenAtIndex(const size_t wordIndex, const int
   const BionicTokenMetadata remainderBionic = computeBionicMetadata(remainder, style, bionicReadingEnabled);
   words.insert(words.begin() + wordIndex + 1, remainder);
   wordStyles.insert(wordStyles.begin() + wordIndex + 1, remainderBionic.style);
+  wordRoles.insert(wordRoles.begin() + wordIndex + 1, wordRoles[wordIndex]);
   wordBackgroundBlack.insert(wordBackgroundBlack.begin() + wordIndex + 1, wordBackgroundBlack[wordIndex]);
   wordBionicBoundary.insert(wordBionicBoundary.begin() + wordIndex + 1, remainderBionic.boundary);
   wordGuideDotBefore.insert(wordGuideDotBefore.begin() + wordIndex + 1, false);
@@ -1134,18 +1139,21 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
 
   auto& lineWords = lineWordsScratch;
   auto& lineWordStyles = lineStylesScratch;
+  auto& lineWordRoles = lineRolesScratch;
   auto& lineWordWidths = lineWidthsScratch;
   auto& lineBionicBoundary = lineBionicBoundaryScratch;
   auto& lineGuideDotBefore = lineGuideDotBeforeScratch;
   auto& lineBackgroundBlack = lineBackgroundBlackScratch;
   lineWords.clear();
   lineWordStyles.clear();
+  lineWordRoles.clear();
   lineWordWidths.clear();
   lineBionicBoundary.clear();
   lineGuideDotBefore.clear();
   lineBackgroundBlack.clear();
   lineWords.reserve(lineWordCount);
   lineWordStyles.reserve(lineWordCount);
+  lineWordRoles.reserve(lineWordCount);
   lineWordWidths.reserve(lineWordCount);
   lineBionicBoundary.reserve(lineWordCount);
   lineGuideDotBefore.reserve(lineWordCount);
@@ -1156,6 +1164,7 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
     std::string word = std::move(words[sourceIndex]);
     lineWords.push_back(std::move(word));
     lineWordStyles.push_back(wordStyles[sourceIndex]);
+    lineWordRoles.push_back(wordRoles[sourceIndex]);
     lineWordWidths.push_back(wordWidths[sourceIndex]);
     lineBionicBoundary.push_back(wordBionicBoundary[sourceIndex]);
     if (lineBionicBoundary.back() >= lineWords.back().size()) {
@@ -1215,6 +1224,7 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
   if (willReorder) {
     reorderedWordsScratch.clear();
     reorderedStylesScratch.clear();
+    reorderedRolesScratch.clear();
     reorderedWidthsScratch.clear();
     reorderedContinuesScratch.clear();
     reorderedNoSpaceBeforeScratch.clear();
@@ -1223,6 +1233,7 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
     reorderedBackgroundBlackScratch.clear();
     reorderedWordsScratch.reserve(visualOrderScratch.size());
     reorderedStylesScratch.reserve(visualOrderScratch.size());
+    reorderedRolesScratch.reserve(visualOrderScratch.size());
     reorderedWidthsScratch.reserve(visualOrderScratch.size());
     reorderedContinuesScratch.reserve(visualOrderScratch.size());
     reorderedNoSpaceBeforeScratch.reserve(visualOrderScratch.size());
@@ -1234,6 +1245,7 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
       const uint16_t src = visualOrderScratch[i];
       reorderedWordsScratch.push_back(std::move(lineWords[src]));
       reorderedStylesScratch.push_back(lineWordStyles[src]);
+      reorderedRolesScratch.push_back(lineWordRoles[src]);
       reorderedWidthsScratch.push_back(lineWordWidths[src]);
       reorderedBionicBoundaryScratch.push_back(lineBionicBoundary[src]);
       reorderedBackgroundBlackScratch.push_back(lineBackgroundBlack[src]);
@@ -1323,6 +1335,7 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
 
     lineWords.swap(reorderedWordsScratch);
     lineWordStyles.swap(reorderedStylesScratch);
+    lineWordRoles.swap(reorderedRolesScratch);
     lineWordWidths.swap(reorderedWidthsScratch);
     lineBionicBoundary.swap(reorderedBionicBoundaryScratch);
     lineGuideDotBefore.swap(reorderedGuideDotBeforeScratch);
@@ -1385,7 +1398,7 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
 
   bool lineHasBionicSplit = false;
   bool lineHasGuideDot = false;
-  bool lineHasBackgroundFlags = false;
+  bool lineHasWordFlags = false;
   for (size_t i = 0; i < lineWordCount; i++) {
     if (lineBionicBoundary[i] > 0) {
       lineHasBionicSplit = true;
@@ -1393,10 +1406,10 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
     if (i > 0 && lineGuideDotBefore[i]) {
       lineHasGuideDot = true;
     }
-    if (lineBackgroundBlack[i] != 0) {
-      lineHasBackgroundFlags = true;
+    if (lineBackgroundBlack[i] != 0 || lineWordRoles[i] == FontRole::Secondary) {
+      lineHasWordFlags = true;
     }
-    if (lineHasBionicSplit && lineHasGuideDot && lineHasBackgroundFlags) {
+    if (lineHasBionicSplit && lineHasGuideDot && lineHasWordFlags) {
       break;
     }
   }
@@ -1407,7 +1420,7 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
   std::vector<uint8_t> outBoundaries;
   std::vector<uint16_t> outSuffixX;
   std::vector<uint16_t> outGuideDotXOffset;
-  std::vector<uint8_t> outBackgroundBlack;
+  std::vector<uint8_t> outWordFlags;
   outWords.reserve(lineWordCount);
   outXPos.reserve(lineWordCount);
   outStyles.reserve(lineWordCount);
@@ -1418,8 +1431,8 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
   if (lineHasGuideDot) {
     outGuideDotXOffset.reserve(lineWordCount);
   }
-  if (lineHasBackgroundFlags) {
-    outBackgroundBlack.reserve(lineWordCount);
+  if (lineHasWordFlags) {
+    outWordFlags.reserve(lineWordCount);
   }
 
   for (size_t i = 0; i < lineWordCount; i++) {
@@ -1448,13 +1461,17 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
         outGuideDotXOffset[outGuideDotXOffset.size() - 2] = static_cast<uint16_t>(dotDelta > 0 ? dotDelta : 0);
       }
     }
-    if (lineHasBackgroundFlags) {
-      outBackgroundBlack.push_back(lineBackgroundBlack[i]);
+    if (lineHasWordFlags) {
+      uint8_t flags = lineBackgroundBlack[i];
+      if (lineWordRoles[i] == FontRole::Secondary) {
+        flags = static_cast<uint8_t>(flags | TextBlock::WORD_FLAG_SECONDARY_FONT);
+      }
+      outWordFlags.push_back(flags);
     }
   }
 
   auto block = std::make_shared<TextBlock>(outWords, outXPos, outStyles, outBoundaries, outSuffixX, outGuideDotXOffset,
-                                           outBackgroundBlack, blockStyle);
+                                           outWordFlags, blockStyle);
   if (!block->valid()) {
     LOG_ERR("PTX", "Dropping line: TextBlock arena allocation failed");
     return false;

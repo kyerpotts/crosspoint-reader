@@ -1,6 +1,7 @@
 #pragma once
 
 #include <EpdFontFamily.h>
+#include "FontRole.h"
 
 #include <functional>
 #include <memory>
@@ -18,6 +19,7 @@ class ArenaVector;
 class ParsedText {
   std::vector<std::string> words;
   std::vector<EpdFontFamily::Style> wordStyles;
+  std::vector<FontRole> wordRoles;
   std::vector<bool> wordContinues;          // true = word attaches to previous (no space before it)
   std::vector<bool> wordNoSpaceBefore;      // true = may break before token, but no synthetic space when joined
   std::vector<uint8_t> wordBionicBoundary;  // UTF-8 byte offset where the regular suffix starts; 0 = no split
@@ -32,6 +34,7 @@ class ParsedText {
   bool hasRtlWord;
   std::vector<std::string> reorderedWordsScratch;
   std::vector<EpdFontFamily::Style> reorderedStylesScratch;
+  std::vector<FontRole> reorderedRolesScratch;
   std::vector<uint16_t> reorderedWidthsScratch;
   std::vector<bool> reorderedContinuesScratch;
   std::vector<bool> reorderedNoSpaceBeforeScratch;
@@ -41,6 +44,7 @@ class ParsedText {
   std::vector<std::string> lineWordsScratch;
   std::vector<EpdFontFamily::Style> lineStylesScratch;
   std::vector<uint16_t> lineWidthsScratch;
+  std::vector<FontRole> lineRolesScratch;
   std::vector<uint8_t> lineBionicBoundaryScratch;
   std::vector<bool> lineGuideDotBeforeScratch;
   std::vector<uint8_t> lineBackgroundBlackScratch;
@@ -83,7 +87,7 @@ class ParsedText {
   ~ParsedText() = default;
 
   void addWord(std::string word, EpdFontFamily::Style fontStyle, bool underline = false, bool attachToPrevious = false,
-               bool backgroundBlack = false);
+               bool backgroundBlack = false, FontRole fontRole = FontRole::Primary);
   void setBlockStyle(const BlockStyle& blockStyle) { this->blockStyle = blockStyle; }
   BlockStyle& getBlockStyle() { return blockStyle; }
   size_t size() const { return words.size(); }

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "Block.h"
+#include "../FontRole.h"
 #include "BlockStyle.h"
 
 // Represents one rendered line. Per-word data is packed into one heap arena
@@ -41,6 +42,7 @@ class TextBlock final : public Block {
  public:
   static constexpr uint8_t WORD_FLAG_BACKGROUND_BLACK = 0x01;
   static constexpr uint8_t WORD_FLAG_INSERTED_HYPHEN = 0x02;
+  static constexpr uint8_t WORD_FLAG_SECONDARY_FONT = SECONDARY_FONT_WORD_FLAG;
 
   explicit TextBlock(const std::vector<std::string>& words, const std::vector<int16_t>& wordXpos,
                      const std::vector<EpdFontFamily::Style>& wordStyles, const std::vector<uint8_t>& bionicBoundary,
@@ -67,6 +69,7 @@ class TextBlock final : public Block {
   uint16_t guideDotXOffset(const uint16_t i) const { return guideDotsPresent ? guideDotXOffsetArr[i] : 0; }
   uint8_t wordFlags(const uint16_t i) const { return wordFlagsPresent ? wordFlagsArr[i] : 0; }
   bool wordEndsWithInsertedHyphen(const uint16_t i) const { return (wordFlags(i) & WORD_FLAG_INSERTED_HYPHEN) != 0; }
+  FontRole wordFontRole(const uint16_t i) const { return fontRoleFromWordFlags(wordFlags(i)); }
 
   void render(const GfxRenderer& renderer, int fontId, int x, int y, bool foregroundBlack = true) const;
   bool collectGlyphDemand(GlyphDemandCollector& demand) const;
