@@ -1866,6 +1866,7 @@ void EpubReaderActivity::onExit() {
 
   BOOKMARKS.unload();
   CLIPPINGS.unload();
+  glyphDemandWorkspace.reset();
   section.reset();
 
   if (pendingReadFolderMove && epub) {
@@ -3787,6 +3788,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   const uint16_t viewportHeight = layout.viewportHeight;
 
   if (!section) {
+    glyphDemandWorkspace.reset();
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
     LOG_DBG("ERS", "Loading file: %s, index: %d (free=%u, maxAlloc=%u)", filepath.c_str(), currentSpineIndex,
             ESP.getFreeHeap(), ESP.getMaxAllocHeap());
@@ -4260,61 +4262,77 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   fcm->resetStats();
   const auto heapBefore = MemoryBudget::snapshot();
   FontRenderContext renderFonts{fontId, SETTINGS.getSecondaryReaderFontId()};
-  auto* primaryEntries = glyphDemandEntries.data();
-  auto* secondaryEntries = glyphDemandEntries.data() + FontDecompressor::MAX_PAGE_GLYPHS;
-  GlyphDemandCollector primaryDemand(primaryEntries, FontDecompressor::MAX_PAGE_GLYPHS);
-  GlyphDemandCollector secondaryDemand(secondaryEntries, FontDecompressor::MAX_PAGE_GLYPHS);
-  const bool collected = page->collectGlyphDemand(primaryDemand, secondaryDemand) && !primaryDemand.overflowed() &&
-                         !secondaryDemand.overflowed();
-
-  if (collected) {
-    bool demandsMerged = false;
-    if (secondaryDemand.size() > 0 && !renderFonts.hasSecondary()) {
-      demandsMerged = primaryDemand.mergeFrom(secondaryDemand);
+  if (!glyphDemandWorkspace) {
+    // Reused between page turns, but not retained while a section is indexed.
+    glyphDemandWorkspace = makeUniqueNoThrow<GlyphDemandWorkspace>();
+    if (!glyphDemandWorkspace) {
+      LOG_ERR("ERS", "Failed to allocate glyph demand workspace (%u bytes)",
+              static_cast<unsigned>(sizeof(GlyphDemandWorkspace)));
     }
+  }
 
-    if (secondaryDemand.size() == 0 || renderFonts.hasSecondary() || demandsMerged) {
-      fcm->clearCache();
-      bool primaryReady = fcm->prewarmDemand(renderFonts.primaryId, primaryDemand.entries(), primaryDemand.size(),
-                                             glyphPrewarmScratch.data(), glyphPrewarmScratch.size());
-      if (primaryReady && renderFonts.hasSecondary() && secondaryDemand.size() > 0) {
-        const bool secondaryReady =
-            fcm->prewarmDemand(renderFonts.secondaryId, secondaryDemand.entries(), secondaryDemand.size(),
-                               glyphPrewarmScratch.data(), glyphPrewarmScratch.size());
-        if (!secondaryReady) {
-          fcm->clearCache(renderFonts.secondaryId);
-          renderFonts.secondaryId = 0;
-          if (primaryDemand.mergeFrom(secondaryDemand)) {
-            fcm->clearCache(renderFonts.primaryId);
-            primaryReady = fcm->prewarmDemand(renderFonts.primaryId, primaryDemand.entries(), primaryDemand.size(),
-                                              glyphPrewarmScratch.data(), glyphPrewarmScratch.size());
-          } else {
-            primaryReady = false;
-          }
-        }
+  if (glyphDemandWorkspace) {
+    auto* primaryEntries = glyphDemandWorkspace->entries.data();
+    auto* secondaryEntries = primaryEntries + FontDecompressor::MAX_PAGE_GLYPHS;
+    auto* prewarmScratch = reinterpret_cast<uint8_t*>(glyphDemandWorkspace->prewarmCodepoints.data());
+    constexpr size_t prewarmScratchBytes = sizeof(uint32_t) * (FontDecompressor::MAX_PAGE_GLYPHS + 1);
+    GlyphDemandCollector primaryDemand(primaryEntries, FontDecompressor::MAX_PAGE_GLYPHS);
+    GlyphDemandCollector secondaryDemand(secondaryEntries, FontDecompressor::MAX_PAGE_GLYPHS);
+    const bool collected = page->collectGlyphDemand(primaryDemand, secondaryDemand) && !primaryDemand.overflowed() &&
+                           !secondaryDemand.overflowed();
+
+    if (collected) {
+      bool demandsMerged = false;
+      if (secondaryDemand.size() > 0 && !renderFonts.hasSecondary()) {
+        demandsMerged = primaryDemand.mergeFrom(secondaryDemand);
       }
 
-      if (!primaryReady && renderer.isSdCardFont(renderFonts.primaryId)) {
+      if (secondaryDemand.size() == 0 || renderFonts.hasSecondary() || demandsMerged) {
+        fcm->clearCache();
+        bool primaryReady = fcm->prewarmDemand(renderFonts.primaryId, primaryDemand.entries(), primaryDemand.size(),
+                                               prewarmScratch, prewarmScratchBytes);
+        if (primaryReady && renderFonts.hasSecondary() && secondaryDemand.size() > 0) {
+          const bool secondaryReady = fcm->prewarmDemand(renderFonts.secondaryId, secondaryDemand.entries(),
+                                                         secondaryDemand.size(), prewarmScratch, prewarmScratchBytes);
+          if (!secondaryReady) {
+            fcm->clearCache(renderFonts.secondaryId);
+            renderFonts.secondaryId = 0;
+            if (primaryDemand.mergeFrom(secondaryDemand)) {
+              fcm->clearCache(renderFonts.primaryId);
+              primaryReady = fcm->prewarmDemand(renderFonts.primaryId, primaryDemand.entries(), primaryDemand.size(),
+                                                prewarmScratch, prewarmScratchBytes);
+            } else {
+              primaryReady = false;
+            }
+          }
+        }
+
+        if (!primaryReady && renderer.isSdCardFont(renderFonts.primaryId)) {
+          renderFonts.primaryId = SETTINGS.getBuiltInReaderFontId();
+          renderFonts.secondaryId = 0;
+          fcm->clearCache();
+          if (primaryDemand.mergeFrom(secondaryDemand)) {
+            fcm->prewarmDemand(renderFonts.primaryId, primaryDemand.entries(), primaryDemand.size(), prewarmScratch,
+                               prewarmScratchBytes);
+          }
+        }
+      } else {
         renderFonts.primaryId = SETTINGS.getBuiltInReaderFontId();
         renderFonts.secondaryId = 0;
         fcm->clearCache();
-        if (primaryDemand.mergeFrom(secondaryDemand)) {
-          fcm->prewarmDemand(renderFonts.primaryId, primaryDemand.entries(), primaryDemand.size(),
-                             glyphPrewarmScratch.data(), glyphPrewarmScratch.size());
-        }
       }
+      LOG_DBG("ERS", "Glyph demand: primary=%u secondary=%u renderPrimary=%d renderSecondary=%d", primaryDemand.size(),
+              secondaryDemand.size(), renderFonts.primaryId, renderFonts.secondaryId);
     } else {
-      renderFonts.primaryId = SETTINGS.getBuiltInReaderFontId();
+      if (renderer.isSdCardFont(renderFonts.primaryId)) renderFonts.primaryId = SETTINGS.getBuiltInReaderFontId();
       renderFonts.secondaryId = 0;
       fcm->clearCache();
+      LOG_ERR("ERS", "Glyph demand overflow; using built-in fallback");
     }
-    LOG_DBG("ERS", "Glyph demand: primary=%u secondary=%u renderPrimary=%d renderSecondary=%d", primaryDemand.size(),
-            secondaryDemand.size(), renderFonts.primaryId, renderFonts.secondaryId);
   } else {
     if (renderer.isSdCardFont(renderFonts.primaryId)) renderFonts.primaryId = SETTINGS.getBuiltInReaderFontId();
     renderFonts.secondaryId = 0;
     fcm->clearCache();
-    LOG_ERR("ERS", "Glyph demand overflow; using built-in fallback");
   }
   const auto heapAfter = MemoryBudget::snapshot();
   fcm->logStats("prewarm");

@@ -137,9 +137,11 @@ class EpubReaderActivity final : public Activity {
   bool completionTriggerSeenBelow = false;
   bool completionTriggerCrossed = false;
   bool lastAtOrPastCompletionTrigger = false;
-  std::array<GlyphDemandEntry, FontDecompressor::MAX_PAGE_GLYPHS * 2> glyphDemandEntries = {};
-  alignas(
-      uint32_t) std::array<uint8_t, sizeof(uint32_t) * FontDecompressor::MAX_PAGE_GLYPHS + 1> glyphPrewarmScratch = {};
+  struct GlyphDemandWorkspace {
+    std::array<GlyphDemandEntry, FontDecompressor::MAX_PAGE_GLYPHS * 2> entries = {};
+    std::array<uint32_t, FontDecompressor::MAX_PAGE_GLYPHS + 1> prewarmCodepoints = {};
+  };
+  std::unique_ptr<GlyphDemandWorkspace> glyphDemandWorkspace;
 
   // Tracks whether this book is currently removed from Recent Books by the
   // removeReadBooksFromRecents feature (set at End-of-Book, cleared if paged back in).
