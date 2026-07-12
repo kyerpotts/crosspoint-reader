@@ -18,6 +18,7 @@
 #include "Epub/blocks/TextBlock.h"
 #include "Epub/css/CssParser.h"
 #include "Epub/css/CssStyle.h"
+#include "Epub/parsers/ListState.h"
 
 class Page;
 class GfxRenderer;
@@ -142,7 +143,9 @@ class ChapterHtmlSlimParser {
   int tableDepth = 0;
   int tableRowIndex = 0;
   int tableColIndex = 0;
+  ListState listState;
   int pendingListMarkerDepth = -1;
+  bool hasPendingListMarkerIndent = false;
   bool currentTableCellIsHeader = false;
   uint8_t currentTableCellColSpan = 1;
   std::unique_ptr<BufferedTable> currentTableBuffer = nullptr;
