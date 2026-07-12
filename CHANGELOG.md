@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- EPUB ordered, unordered, and nested lists now keep markers and wrapped item text consistently aligned.
 - Underlined EPUB text now draws a continuous line across the spaces between adjacent underlined words.
 - KOReader Sync authentication errors now wrap on-screen instead of running off the display.
 - Chapter openers whose decorative image sits inside the heading (chapter number, ornament, then title) now stay together on one page instead of splitting the chapter number onto its own page.

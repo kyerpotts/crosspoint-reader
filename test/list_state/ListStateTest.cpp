@@ -30,6 +30,24 @@ TEST(ListStateTest, UsesBulletsForUnorderedItems) {
   EXPECT_STREQ(state.pendingMarker(), BULLET);
 }
 
+TEST(ListStateTest, BuildsFixedWidthMarkerTokenForJustifiedLines) {
+  ListState state;
+
+  state.enterList(true);
+  state.enterItem();
+  EXPECT_STREQ(state.pendingMarker(), "1.");
+  EXPECT_STREQ(state.pendingMarkerToken(), "1. ");
+
+  state.consumePendingMarker();
+  EXPECT_STREQ(state.pendingMarkerToken(), "");
+
+  state.exitItem();
+  state.exitList();
+  state.enterList(false);
+  state.enterItem();
+  EXPECT_STREQ(state.pendingMarkerToken(), "\xE2\x80\xA2 ");
+}
+
 TEST(ListStateTest, RestoresOuterOrdinalAfterNestedList) {
   ListState state;
 
