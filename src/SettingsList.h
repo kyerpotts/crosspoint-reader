@@ -142,34 +142,28 @@ inline uint8_t closestBuiltinFontSizeIndex(const uint8_t targetPointSize) {
   return bestStored;
 }
 
+inline std::vector<std::string> buildSdFontFamilyNames(const SdCardFontRegistry* registry) {
+  std::vector<std::string> names;
+  if (!registry) return names;
+
+  const auto& families = registry->getFamilies();
+  names.reserve(families.size());
+  std::transform(families.begin(), families.end(), std::back_inserter(names),
+                 [](const SdCardFontFamilyInfo& family) { return family.name; });
+  return names;
+}
+
 // Build the font family setting dynamically. When registry is non-null, SD card fonts
 // are appended after the built-in fonts. Otherwise only built-in fonts are listed.
 inline SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
-  // Built-in font labels (StrId)
   std::vector<StrId> enumValues = {StrId::STR_LEXEND_DECA, StrId::STR_BITTER};
-  // Runtime string labels for SD card fonts
-  std::vector<std::string> enumStringValues;
-
-  // Reserve: first CrossPointSettings::BUILTIN_FONT_COUNT entries use StrId, rest use strings
-  if (registry) {
-    const auto& families = registry->getFamilies();
-    enumStringValues.reserve(families.size());
-    std::transform(families.begin(), families.end(), std::back_inserter(enumStringValues),
-                   [](const SdCardFontFamilyInfo& f) { return f.name; });
-  }
-
-  // Capture the SD font count for the lambdas
-  const int sdFontCount = static_cast<int>(enumStringValues.size());
-
-  // Total option count = built-in + SD card families
-  // For the combined enumStringValues: we need all entries as strings (built-in names + SD names)
-  // The render code checks enumStringValues first, then enumValues. So we build enumStringValues
-  // with all options when SD fonts are present.
+  std::vector<std::string> sdFamilyNames = buildSdFontFamilyNames(registry);
   std::vector<std::string> allStringValues;
-  if (sdFontCount > 0) {
+  if (!sdFamilyNames.empty()) {
+    allStringValues.reserve(CrossPointSettings::BUILTIN_FONT_COUNT + sdFamilyNames.size());
     allStringValues.push_back(I18N.get(StrId::STR_LEXEND_DECA));
     allStringValues.push_back(I18N.get(StrId::STR_BITTER));
-    allStringValues.insert(allStringValues.end(), enumStringValues.begin(), enumStringValues.end());
+    allStringValues.insert(allStringValues.end(), sdFamilyNames.begin(), sdFamilyNames.end());
   }
 
   SettingInfo s;
@@ -180,17 +174,12 @@ inline SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
   s.key = "fontFamily";
   s.category = StrId::STR_CAT_READER;
 
-  // Capture registry families by copy for the lambdas
-  std::vector<std::string> sdFamilyNames;
   std::vector<std::vector<uint8_t>> sdFamilySizes;
   if (registry) {
     const auto& families = registry->getFamilies();
-    sdFamilyNames.reserve(families.size());
     sdFamilySizes.reserve(families.size());
-    std::transform(families.begin(), families.end(), std::back_inserter(sdFamilyNames),
-                   [](const SdCardFontFamilyInfo& f) { return f.name; });
     std::transform(families.begin(), families.end(), std::back_inserter(sdFamilySizes),
-                   [](const SdCardFontFamilyInfo& f) { return f.availableSizes(); });
+                   [](const SdCardFontFamilyInfo& family) { return family.availableSizes(); });
   }
 
   s.valueGetter = [sdFamilyNames]() -> uint8_t {
