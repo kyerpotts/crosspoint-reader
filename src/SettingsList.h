@@ -223,6 +223,38 @@ inline SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
   return s;
 }
 
+inline SettingInfo buildMonospaceFontSetting(const SdCardFontRegistry* registry) {
+  std::vector<std::string> sdFamilyNames = buildSdFontFamilyNames(registry);
+  std::vector<std::string> labels;
+  labels.reserve(1 + sdFamilyNames.size());
+  labels.push_back(I18N.get(StrId::STR_DISABLED));
+  labels.insert(labels.end(), sdFamilyNames.begin(), sdFamilyNames.end());
+
+  SettingInfo setting;
+  setting.nameId = StrId::STR_MONOSPACE_FONT;
+  setting.type = SettingType::ENUM;
+  setting.enumStringValues = std::move(labels);
+  setting.category = StrId::STR_CAT_READER;
+  setting.valueGetter = [sdFamilyNames]() -> uint8_t {
+    if (!SETTINGS.secondarySdFontFamilyName.empty()) {
+      for (size_t i = 0; i < sdFamilyNames.size(); ++i) {
+        if (sdFamilyNames[i] == SETTINGS.secondarySdFontFamilyName.value) {
+          return static_cast<uint8_t>(i + 1);
+        }
+      }
+    }
+    return 0;
+  };
+  setting.valueSetter = [sdFamilyNames](const uint8_t value) {
+    if (value == 0 || value > sdFamilyNames.size()) {
+      SETTINGS.secondarySdFontFamilyName.clear();
+      return;
+    }
+    SETTINGS.secondarySdFontFamilyName.assign(sdFamilyNames[value - 1].c_str());
+  };
+  return setting;
+}
+
 inline SettingInfo buildSleepScreenSetting() {
   SettingInfo s = SettingInfo::Enum(
       StrId::STR_SLEEP_SCREEN, &CrossPointSettings::sleepScreen,
@@ -304,6 +336,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
     // version when SD fonts are installed.
     add(SettingInfo::Enum(StrId::STR_FONT_FAMILY, &CrossPointSettings::fontFamily,
                           {StrId::STR_LEXEND_DECA, StrId::STR_BITTER}, "fontFamily", StrId::STR_CAT_READER));
+    add(buildMonospaceFontSetting(nullptr));
     add(buildBuiltinFontSizeSetting());
     add(SettingInfo::Enum(StrId::STR_SD_FONT_SIZE_RANGE, &CrossPointSettings::sdFontSizeRange,
                           {StrId::STR_FONT_RANGE_TEENSY, StrId::STR_FONT_RANGE_TINY, StrId::STR_FONT_RANGE_XLARGE,
@@ -677,19 +710,25 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
 
   std::vector<SettingInfo> v = baseList;
   if (registry && registry->getFamilyCount() > 0) {
-    auto it = std::find_if(v.begin(), v.end(), [](const SettingInfo& s) { return s.nameId == StrId::STR_FONT_FAMILY; });
-    if (it != v.end()) {
-      *it = buildFontFamilySetting(registry);
+    auto fontFamilyIt = std::find_if(
+        v.begin(), v.end(), [](const SettingInfo& setting) { return setting.nameId == StrId::STR_FONT_FAMILY; });
+    if (fontFamilyIt != v.end()) {
+      *fontFamilyIt = buildFontFamilySetting(registry);
     }
-    auto fontSizeIt =
-        std::find_if(v.begin(), v.end(), [](const SettingInfo& s) { return s.nameId == StrId::STR_FONT_SIZE; });
+    auto monospaceFontIt = std::find_if(
+        v.begin(), v.end(), [](const SettingInfo& setting) { return setting.nameId == StrId::STR_MONOSPACE_FONT; });
+    if (monospaceFontIt != v.end()) {
+      *monospaceFontIt = buildMonospaceFontSetting(registry);
+    }
+    auto fontSizeIt = std::find_if(v.begin(), v.end(),
+                                   [](const SettingInfo& setting) { return setting.nameId == StrId::STR_FONT_SIZE; });
     if (fontSizeIt != v.end()) {
       *fontSizeIt = buildFontSizeSetting(registry);
     }
   }
   if (!gpio.deviceIsX3()) {
-    auto sleepScreenIt =
-        std::find_if(v.begin(), v.end(), [](const SettingInfo& s) { return s.nameId == StrId::STR_SLEEP_SCREEN; });
+    auto sleepScreenIt = std::find_if(
+        v.begin(), v.end(), [](const SettingInfo& setting) { return setting.nameId == StrId::STR_SLEEP_SCREEN; });
     if (sleepScreenIt != v.end()) {
       removeEnumRawValue(*sleepScreenIt, static_cast<uint8_t>(CrossPointSettings::MINIMAL_STATS_SLEEP));
     }
@@ -711,7 +750,7 @@ inline std::vector<SettingInfo> buildGroupedReaderSettingsList(const std::vector
 
   readerSettings.push_back(SettingInfo::SectionHeader(StrId::STR_READER_FONT_OPTIONS));
   addReaderSetting(StrId::STR_FONT_FAMILY);
-  readerSettings.push_back(SettingInfo::Action(StrId::STR_MONOSPACE_FONT, SettingAction::None));
+  addReaderSetting(StrId::STR_MONOSPACE_FONT);
   addReaderSetting(StrId::STR_FONT_SIZE);
   readerSettings.push_back(SettingInfo::Action(StrId::STR_MANAGE_FONTS, SettingAction::DownloadFonts));
   addReaderSetting(StrId::STR_SD_FONT_SIZE_RANGE);
@@ -722,7 +761,6 @@ inline std::vector<SettingInfo> buildGroupedReaderSettingsList(const std::vector
   addReaderSetting(StrId::STR_PARA_ALIGNMENT);
   addReaderSetting(StrId::STR_EXTRA_SPACING);
   addReaderSetting(StrId::STR_FORCE_PARAGRAPH_INDENTS);
-
   readerSettings.push_back(SettingInfo::SectionHeader(StrId::STR_READER_BOOK_STYLING));
   addReaderSetting(StrId::STR_EMBEDDED_STYLE);
   addReaderSetting(StrId::STR_HYPHENATION);
@@ -769,7 +807,7 @@ inline std::vector<SettingInfo> buildReaderFontSettingsList(const std::vector<Se
   std::vector<SettingInfo> settings;
   settings.reserve(7);
   addSettingByName(settings, allSettings, StrId::STR_FONT_FAMILY);
-  settings.push_back(SettingInfo::Action(StrId::STR_MONOSPACE_FONT, SettingAction::None));
+  addSettingByName(settings, allSettings, StrId::STR_MONOSPACE_FONT);
   addSettingByName(settings, allSettings, StrId::STR_FONT_SIZE);
   addSettingByName(settings, allSettings, StrId::STR_LINE_SPACING);
   settings.push_back(SettingInfo::Action(StrId::STR_MANAGE_FONTS, SettingAction::DownloadFonts));
@@ -780,7 +818,6 @@ inline std::vector<SettingInfo> buildReaderFontSettingsList(const std::vector<Se
 
 inline std::vector<SettingInfo> buildReaderPageLayoutSettingsList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> settings;
-  settings.reserve(6);
   addSettingByName(settings, allSettings, StrId::STR_ORIENTATION);
   addSettingByName(settings, allSettings, StrId::STR_SCREEN_MARGIN);
   addSettingByName(settings, allSettings, StrId::STR_PARA_ALIGNMENT);
