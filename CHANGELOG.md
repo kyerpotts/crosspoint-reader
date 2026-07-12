@@ -10,6 +10,7 @@
 
 - Selected EPUB monospace fonts now show their family name in Reader settings.
 - EPUB chapter indexing releases mixed-font page-render scratch memory, leaving more heap available for large chapters.
+- Inline EPUB monospace text now uses the selected font's exact metrics and equal spacing at both font boundaries.
 
 - EPUB ordered, unordered, and nested lists now keep markers and wrapped item text consistently aligned.
 - Underlined EPUB text now draws a continuous line across the spaces between adjacent underlined words.

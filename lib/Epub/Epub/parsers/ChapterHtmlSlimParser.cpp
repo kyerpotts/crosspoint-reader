@@ -2694,7 +2694,10 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
 }
 
 void ChapterHtmlSlimParser::prewarmSectionAdvanceTable(FsFile& file) const {
-  if (!renderer.isSdCardFont(fontId) || isPreviewBuild()) {
+  const bool primaryIsSdFont = renderer.isSdCardFont(fontId);
+  const bool secondaryIsSdFont =
+      secondaryFontId != 0 && secondaryFontId != fontId && renderer.isSdCardFont(secondaryFontId);
+  if ((!primaryIsSdFont && !secondaryIsSdFont) || isPreviewBuild()) {
     return;
   }
 
@@ -2781,8 +2784,14 @@ void ChapterHtmlSlimParser::prewarmSectionAdvanceTable(FsFile& file) const {
     return;
   }
 
-  renderer.ensureSdCardFontReady(fontId, codepoints.get(), cpCount, /*includeSpace=*/true, hyphenationEnabled,
-                                 /*styleMask=*/0x0F);
+  if (primaryIsSdFont) {
+    renderer.ensureSdCardFontReady(fontId, codepoints.get(), cpCount, /*includeSpace=*/true, hyphenationEnabled,
+                                   /*styleMask=*/0x0F);
+  }
+  if (secondaryIsSdFont) {
+    renderer.ensureSdCardFontReady(secondaryFontId, codepoints.get(), cpCount, /*includeSpace=*/true,
+                                   hyphenationEnabled, /*styleMask=*/0x0F);
+  }
   LOG_DBG("EHP", "Section advance prewarm: codepoints=%u time=%lu ms free=%u maxAlloc=%u",
           static_cast<unsigned>(cpCount), millis() - startMs, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 }

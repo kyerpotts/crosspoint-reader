@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-inline constexpr uint8_t SECTION_FILE_VERSION = 46;
+inline constexpr uint8_t SECTION_FILE_VERSION = 48;
 
 struct SectionCacheIdentity {
   uint8_t version;

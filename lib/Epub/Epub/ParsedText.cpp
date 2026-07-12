@@ -350,7 +350,7 @@ size_t guideDotGapSlots(const std::string& rightWord) {
 }
 
 int naturalGapBeforeToken(const GfxRenderer& renderer, const int leftFontId, const int rightFontId,
-                          const std::string& leftWord, const std::string& rightWord,
+                          const int boundarySpaceFontId, const std::string& leftWord, const std::string& rightWord,
                           const EpdFontFamily::Style leftStyle, const bool continues, const bool noSpaceBefore,
                           const bool guideDotBefore) {
   if (guideDotBefore) {
@@ -365,7 +365,7 @@ int naturalGapBeforeToken(const GfxRenderer& renderer, const int leftFontId, con
                : 0;
   }
   if (leftFontId != rightFontId) {
-    return renderer.getSpaceWidth(rightFontId, EpdFontFamily::REGULAR);
+    return renderer.getSpaceWidth(boundarySpaceFontId, EpdFontFamily::REGULAR);
   }
   return renderer.getSpaceAdvance(leftFontId, lastCodepoint(leftWord), firstCodepoint(rightWord), leftStyle);
 }
@@ -755,8 +755,8 @@ bool ParsedText::calculateGapMetrics(ArenaVector<int16_t>& naturalGaps, ArenaVec
     const int leftFontId = fonts.resolve(wordRoles[i - 1]);
     const int rightFontId = fonts.resolve(wordRoles[i]);
     naturalGaps[i] = static_cast<int16_t>(
-        naturalGapBeforeToken(renderer, leftFontId, rightFontId, words[i - 1], words[i], wordStyles[i - 1], continues,
-                              noSpaceBefore, guideDotBefore));
+        naturalGapBeforeToken(renderer, leftFontId, rightFontId, fonts.secondaryId, words[i - 1], words[i],
+                              wordStyles[i - 1], continues, noSpaceBefore, guideDotBefore));
     gapSlots[i] = static_cast<uint8_t>(
         std::min<size_t>(UINT8_MAX, gapSlotsBeforeToken(words[i], continues, noSpaceBefore, guideDotBefore)));
   }
@@ -913,10 +913,10 @@ bool ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& renderer, const 
       if (!isFirstWord) {
         const int leftFontId = fonts.resolve(wordRoles[currentIndex - 1]);
         const int rightFontId = fonts.resolve(wordRoles[currentIndex]);
-        spacing = naturalGapBeforeToken(renderer, leftFontId, rightFontId, words[currentIndex - 1],
-                                        words[currentIndex], wordStyles[currentIndex - 1],
-                                        continuesVec[currentIndex], noSpaceBeforeVec[currentIndex],
-                                        wordGuideDotBefore[currentIndex]);
+        spacing = naturalGapBeforeToken(
+            renderer, leftFontId, rightFontId, fonts.secondaryId, words[currentIndex - 1], words[currentIndex],
+            wordStyles[currentIndex - 1], continuesVec[currentIndex], noSpaceBeforeVec[currentIndex],
+            wordGuideDotBefore[currentIndex]);
       }
       const int candidateWidth = spacing + wordWidths[currentIndex];
 
@@ -1300,8 +1300,8 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
         const int leftFontId = fonts.resolve(reorderedRolesScratch[wordIdx - 1]);
         const int rightFontId = fonts.resolve(reorderedRolesScratch[wordIdx]);
         reorderedNaturalGaps += naturalGapBeforeToken(
-            renderer, leftFontId, rightFontId, reorderedWordsScratch[wordIdx - 1], reorderedWordsScratch[wordIdx],
-            reorderedStylesScratch[wordIdx - 1], reorderedContinuesScratch[wordIdx],
+            renderer, leftFontId, rightFontId, fonts.secondaryId, reorderedWordsScratch[wordIdx - 1],
+            reorderedWordsScratch[wordIdx], reorderedStylesScratch[wordIdx - 1], reorderedContinuesScratch[wordIdx],
             reorderedNoSpaceBeforeScratch[wordIdx], reorderedGuideDotBeforeScratch[wordIdx]);
       }
     }
@@ -1345,9 +1345,9 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
         const bool nextGuideDot = reorderedGuideDotBeforeScratch[wordIdx + 1];
         const int leftFontId = fonts.resolve(reorderedRolesScratch[wordIdx]);
         const int rightFontId = fonts.resolve(reorderedRolesScratch[wordIdx + 1]);
-        int gap = naturalGapBeforeToken(renderer, leftFontId, rightFontId, reorderedWordsScratch[wordIdx],
-                                        reorderedWordsScratch[wordIdx + 1], reorderedStylesScratch[wordIdx],
-                                        nextContinues, nextNoSpace, nextGuideDot);
+        int gap = naturalGapBeforeToken(renderer, leftFontId, rightFontId, fonts.secondaryId,
+                                        reorderedWordsScratch[wordIdx], reorderedWordsScratch[wordIdx + 1],
+                                        reorderedStylesScratch[wordIdx], nextContinues, nextNoSpace, nextGuideDot);
         gap += reorderedJustifyExtra * static_cast<int>(gapSlotsBeforeToken(reorderedWordsScratch[wordIdx + 1],
                                                                             nextContinues, nextNoSpace, nextGuideDot));
         xpos += gap;
