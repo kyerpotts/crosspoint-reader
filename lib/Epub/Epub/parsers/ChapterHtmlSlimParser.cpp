@@ -2646,17 +2646,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         blockStyle.paddingBottom = std::min(blockStyle.paddingBottom, maxSpacing);
       }
 
-      const bool isPendingMarkerParagraph =
-          self->listState.hasPendingMarker() && strcmp(name, "p") == 0 &&
-          self->depth == self->pendingListMarkerDepth + 1;
+      const bool isPendingMarkerParagraph = self->listState.hasPendingMarker() && strcmp(name, "p") == 0 &&
+                                            self->depth == self->pendingListMarkerDepth + 1;
       if (self->listState.inItem() && strcmp(name, "p") == 0 && !cssStyle.hasTextIndent()) {
-        blockStyle.textIndent =
-            isPendingMarkerParagraph
-                ? static_cast<int16_t>(
-                      -(self->renderer.getTextAdvanceX(self->fontId, self->listState.pendingMarker(),
-                                                       EpdFontFamily::REGULAR) +
-                        self->renderer.getSpaceWidth(self->fontId, EpdFontFamily::REGULAR)))
-                : 0;
+        blockStyle.textIndent = isPendingMarkerParagraph
+                                    ? static_cast<int16_t>(-self->renderer.getTextAdvanceX(
+                                          self->fontId, self->listState.pendingMarkerToken(), EpdFontFamily::REGULAR))
+                                    : 0;
         blockStyle.textIndentDefined = true;
       }
 
@@ -2675,16 +2671,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
       if (strcmp(name, "li") == 0 && self->listState.hasPendingMarker() && !cssStyle.hasTextIndent()) {
         auto listItemStyle = self->currentTextBlock->getBlockStyle();
-        listItemStyle.textIndent = static_cast<int16_t>(
-            -(self->renderer.getTextAdvanceX(self->fontId, self->listState.pendingMarker(),
-                                             EpdFontFamily::REGULAR) +
-              self->renderer.getSpaceWidth(self->fontId, EpdFontFamily::REGULAR)));
+        listItemStyle.textIndent = static_cast<int16_t>(-self->renderer.getTextAdvanceX(
+            self->fontId, self->listState.pendingMarkerToken(), EpdFontFamily::REGULAR));
         listItemStyle.textIndentDefined = true;
         self->currentTextBlock->setBlockStyle(listItemStyle);
         self->hasPendingListMarkerIndent = true;
-      } else if (self->hasPendingListMarkerIndent &&
-                 (cssStyle.hasTextIndent() || strcmp(name, "p") != 0 ||
-                  self->depth != self->pendingListMarkerDepth + 1)) {
+      } else if (self->hasPendingListMarkerIndent && (cssStyle.hasTextIndent() || strcmp(name, "p") != 0 ||
+                                                      self->depth != self->pendingListMarkerDepth + 1)) {
         auto listItemStyle = self->currentTextBlock->getBlockStyle();
         listItemStyle.textIndent = accumulated.textIndent;
         listItemStyle.textIndentDefined = accumulated.textIndentDefined;
@@ -2992,12 +2985,12 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       if (!self->currentTextBlock) {
         return;
       }
-      self->currentTextBlock->addWord(self->listState.pendingMarker(), EpdFontFamily::REGULAR, false, false,
+      self->currentTextBlock->addWord(self->listState.pendingMarkerToken(), EpdFontFamily::REGULAR, false, false,
                                       self->honorsPublisherDecorations() && self->effectiveBackgroundBlack, 0,
                                       codepointOffset);
       self->listState.consumePendingMarker();
       self->hasPendingListMarkerIndent = false;
-      self->nextWordContinues = false;
+      self->nextWordContinues = true;
     }
 
     // Detect U+00A0 (non-breaking space, UTF-8: 0xC2 0xA0) or

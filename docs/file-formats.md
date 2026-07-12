@@ -251,6 +251,12 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 65
+
+Version 65 changes ordered, unordered, and nested list marker spacing, indentation,
+and wrapped-line alignment. Complete and suspended section caches rebuild together;
+suspended partial caches use version `0xF6`.
+
 ### Version 64
 
 Version 64 lets narrow table cells split an oversized word at a safe UTF-8
