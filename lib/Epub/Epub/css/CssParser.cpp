@@ -62,9 +62,9 @@ constexpr size_t CSS_RULE_ARENA_EXTRA_BYTES = 1024;
 constexpr size_t MAX_SELECTOR_LENGTH = 256;
 constexpr size_t CSS_LENGTH_FIELD_COUNT = 11;
 constexpr size_t CSS_LENGTH_BYTES = sizeof(float) + sizeof(uint8_t);
-constexpr size_t CSS_FIXED_STYLE_BYTES = 4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) +
+constexpr size_t CSS_FIXED_STYLE_BYTES = 5 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) +
                                          4 * sizeof(uint8_t) + 2 * sizeof(uint8_t) + sizeof(uint32_t);
-static_assert(CSS_FIXED_STYLE_BYTES == 69,
+static_assert(CSS_FIXED_STYLE_BYTES == 70,
               "CssStyle cache payload changed; update read/writeCssStylePayload and bump CSS_CACHE_VERSION");
 
 // Check if character is CSS whitespace
@@ -407,6 +407,9 @@ void CssParser::parseDeclarationIntoStyle(std::string_view decl, CssStyle& style
   } else if (iequalsAscii(name, "font-weight")) {
     style.fontWeight = interpretFontWeight(value);
     style.defined.fontWeight = 1;
+  } else if (iequalsAscii(name, "font-family")) {
+    style.genericFontFamily = parseCssGenericFontFamily(stripTrailingImportant(value));
+    style.defined.genericFontFamily = style.genericFontFamily != CssGenericFontFamily::Unspecified;
   } else if (iequalsAscii(name, "text-decoration") || iequalsAscii(name, "text-decoration-line")) {
     style.textDecoration = interpretDecoration(value);
     style.defined.textDecoration = 1;
@@ -886,7 +889,9 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
   };
 
   if (!writeByte(static_cast<uint8_t>(style.textAlign)) || !writeByte(static_cast<uint8_t>(style.fontStyle)) ||
-      !writeByte(static_cast<uint8_t>(style.fontWeight)) || !writeByte(static_cast<uint8_t>(style.textDecoration)) ||
+      !writeByte(static_cast<uint8_t>(style.fontWeight)) ||
+      !writeByte(static_cast<uint8_t>(style.genericFontFamily)) ||
+      !writeByte(static_cast<uint8_t>(style.textDecoration)) ||
       !writeLength(style.textIndent) || !writeLength(style.marginTop) || !writeLength(style.marginBottom) ||
       !writeLength(style.marginLeft) || !writeLength(style.marginRight) || !writeLength(style.paddingTop) ||
       !writeLength(style.paddingBottom) || !writeLength(style.paddingLeft) || !writeLength(style.paddingRight) ||
@@ -919,6 +924,7 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
   if (style.defined.backgroundBlack) definedBits |= 1 << 16;
   if (style.defined.verticalAlign) definedBits |= 1 << 17;
   if (style.defined.direction) definedBits |= 1 << 18;
+  if (style.defined.genericFontFamily) definedBits |= 1 << 19;
   if (style.defined.pageBreakBefore) definedBits |= 1 << 20;
   if (style.defined.pageBreakAfter) definedBits |= 1 << 21;
   return writeBytes(&definedBits, sizeof(definedBits));
@@ -940,6 +946,8 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
   style.fontStyle = static_cast<CssFontStyle>(enumVal);
   if (file.read(&enumVal, 1) != 1) return false;
   style.fontWeight = static_cast<CssFontWeight>(enumVal);
+  if (file.read(&enumVal, 1) != 1) return false;
+  style.genericFontFamily = static_cast<CssGenericFontFamily>(enumVal);
   if (file.read(&enumVal, 1) != 1) return false;
   style.textDecoration = static_cast<CssTextDecoration>(enumVal & CSS_TEXT_DECORATION_MASK);
   if (!readLength(style.textIndent) || !readLength(style.marginTop) || !readLength(style.marginBottom) ||
@@ -971,6 +979,7 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
   style.defined.textAlign = (definedBits & 1 << 0) != 0;
   style.defined.fontStyle = (definedBits & 1 << 1) != 0;
   style.defined.fontWeight = (definedBits & 1 << 2) != 0;
+  style.defined.genericFontFamily = (definedBits & 1 << 19) != 0;
   style.defined.textDecoration = (definedBits & 1 << 3) != 0;
   style.defined.textIndent = (definedBits & 1 << 4) != 0;
   style.defined.marginTop = (definedBits & 1 << 5) != 0;

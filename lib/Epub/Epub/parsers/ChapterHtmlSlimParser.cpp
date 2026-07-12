@@ -494,7 +494,7 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   // flush the buffer
   partWordBuffer[partWordBufferIndex] = '\0';
   currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues,
-                            honorsPublisherDecorations() && effectiveBackgroundBlack);
+                            honorsPublisherDecorations() && effectiveBackgroundBlack, effectiveFontRole);
   currentTextRunBytes = static_cast<uint16_t>(
       std::min<size_t>(currentTextRunBytes + static_cast<size_t>(partWordBufferIndex), UINT16_MAX));
   partWordBufferIndex = 0;
@@ -1281,6 +1281,24 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   if (cssStyle.hasDisplay() && cssStyle.display == CssDisplay::None) {
     self->skipCurrentElement();
     return;
+  }
+
+  const FontRole resolvedFontRole =
+      resolveElementFontRole(name, self->effectiveFontRole,
+                             cssStyle.hasGenericFontFamily() ? cssStyle.genericFontFamily
+                                                             : CssGenericFontFamily::Unspecified,
+                             self->embeddedStyle);
+  if (resolvedFontRole != self->effectiveFontRole) {
+    if (self->partWordBufferIndex > 0) {
+      self->flushPartWordBuffer();
+      self->nextWordContinues = true;
+    }
+    if (self->fontRoleCount_ < MAX_INLINE_STYLE_DEPTH) {
+      self->fontRoleBuf_[self->fontRoleCount_++] = {self->depth, resolvedFontRole};
+      self->effectiveFontRole = resolvedFontRole;
+    } else {
+      LOG_ERR("EHP", "font role stack overflow");
+    }
   }
   if (strcmp(name, "li") == 0) {
     self->listState.enterItem();
@@ -2516,13 +2534,15 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   // Note: depth hasn't been decremented yet, so we check against (depth - 1)
   const bool willPopStyleStack =
       self->inlineStyleCount_ > 0 && self->inlineStyleBuf_[self->inlineStyleCount_ - 1].depth == self->depth - 1;
+  const bool willPopFontRole =
+      self->fontRoleCount_ > 0 && self->fontRoleBuf_[self->fontRoleCount_ - 1].depth == self->depth - 1;
   const bool willClearBold = self->boldUntilDepth == self->depth - 1;
   const bool willClearItalic = self->italicUntilDepth == self->depth - 1;
   const bool willClearUnderline = self->underlineUntilDepth == self->depth - 1;
   const bool willClearStrikethrough = self->strikethroughUntilDepth == self->depth - 1;
 
-  const bool styleWillChange =
-      willPopStyleStack || willClearBold || willClearItalic || willClearUnderline || willClearStrikethrough;
+  const bool styleWillChange = willPopStyleStack || willPopFontRole || willClearBold || willClearItalic ||
+                               willClearUnderline || willClearStrikethrough;
   const bool headerOrBlockTag = isHeaderOrBlock(name);
   const bool tableStructuralTag = isTableStructuralTag(name);
 
@@ -2555,6 +2575,12 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   }
 
   self->depth -= 1;
+
+  if (self->fontRoleCount_ > 0 && self->fontRoleBuf_[self->fontRoleCount_ - 1].depth == self->depth) {
+    --self->fontRoleCount_;
+    self->effectiveFontRole =
+        self->fontRoleCount_ > 0 ? self->fontRoleBuf_[self->fontRoleCount_ - 1].role : FontRole::Primary;
+  }
 
   // Pop ancestor entries that were pushed at or below the new depth
   while (!self->ancestorStack_.empty() && self->ancestorStack_.back().depth >= self->depth) {
@@ -2784,6 +2810,8 @@ bool ChapterHtmlSlimParser::beginParse() {
     return false;
   }
   inlineStyleCount_ = 0;
+  fontRoleCount_ = 0;
+  effectiveFontRole = FontRole::Primary;
   blockStyleCount_ = 0;
   blockStyleBuf_[blockStyleCount_++] = rootBlockStyle;
 
@@ -2894,6 +2922,8 @@ void ChapterHtmlSlimParser::abortParse() {
   parseArena_.release();
   inlineStyleBuf_ = nullptr;
   inlineStyleCount_ = 0;
+  fontRoleCount_ = 0;
+  effectiveFontRole = FontRole::Primary;
   blockStyleBuf_ = nullptr;
   blockStyleCount_ = 0;
 }
@@ -2960,6 +2990,8 @@ bool ChapterHtmlSlimParser::finishParse() {
   LOG_DBG("EHP", "Parse arena used %u bytes", (unsigned)parseArena_.used());
   parseArena_.release();
   inlineStyleBuf_ = nullptr;
+  fontRoleCount_ = 0;
+  effectiveFontRole = FontRole::Primary;
   blockStyleBuf_ = nullptr;
 
   return true;

@@ -19,6 +19,7 @@
 #include "Epub/css/CssParser.h"
 #include "Epub/css/CssStyle.h"
 #include "Epub/parsers/ListState.h"
+#include "Epub/parsers/FontRoleResolver.h"
 
 class Page;
 class GfxRenderer;
@@ -107,6 +108,14 @@ class ChapterHtmlSlimParser {
   size_t inlineStyleCount_ = 0;
   BlockStyle* blockStyleBuf_ = nullptr;
   size_t blockStyleCount_ = 0;
+
+  struct FontRoleStackEntry {
+    int depth = 0;
+    FontRole role = FontRole::Primary;
+  };
+  FontRoleStackEntry fontRoleBuf_[MAX_INLINE_STYLE_DEPTH] = {};
+  size_t fontRoleCount_ = 0;
+  FontRole effectiveFontRole = FontRole::Primary;
   CssStyle currentCssStyle;
   bool effectiveBold = false;
   bool effectiveItalic = false;

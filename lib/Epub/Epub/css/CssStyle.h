@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "CssFontFamily.h"
 
 // Matches order of PARAGRAPH_ALIGNMENT in CrossPointSettings
 enum class CssTextAlign : uint8_t { Justify = 0, Left = 1, Center = 2, Right = 3, None = 4 };
@@ -77,6 +78,7 @@ struct CssPropertyFlags {
   uint32_t textAlign : 1;
   uint32_t fontStyle : 1;
   uint32_t fontWeight : 1;
+  uint32_t genericFontFamily : 1;
   uint32_t textDecoration : 1;
   uint32_t textIndent : 1;
   uint32_t marginTop : 1;
@@ -100,6 +102,7 @@ struct CssPropertyFlags {
       : textAlign(0),
         fontStyle(0),
         fontWeight(0),
+        genericFontFamily(0),
         textDecoration(0),
         textIndent(0),
         marginTop(0),
@@ -120,13 +123,14 @@ struct CssPropertyFlags {
         pageBreakAfter(0) {}
 
   [[nodiscard]] bool anySet() const {
-    return textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop || marginBottom ||
-           marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight || imageHeight ||
-           imageWidth || display || backgroundBlack || verticalAlign || direction || pageBreakBefore || pageBreakAfter;
+    return textAlign || fontStyle || fontWeight || genericFontFamily || textDecoration || textIndent || marginTop ||
+           marginBottom || marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight ||
+           imageHeight || imageWidth || display || backgroundBlack || verticalAlign || direction || pageBreakBefore ||
+           pageBreakAfter;
   }
 
   void clearAll() {
-    textAlign = fontStyle = fontWeight = textDecoration = textIndent = 0;
+    textAlign = fontStyle = fontWeight = genericFontFamily = textDecoration = textIndent = 0;
     marginTop = marginBottom = marginLeft = marginRight = 0;
     paddingTop = paddingBottom = paddingLeft = paddingRight = 0;
     imageHeight = imageWidth = display = backgroundBlack = verticalAlign = direction = 0;
@@ -145,6 +149,7 @@ struct CssStyle {
   CssFontStyle fontStyle = CssFontStyle::Normal;
   CssFontWeight fontWeight = CssFontWeight::Normal;
   CssTextDecoration textDecoration = CssTextDecoration::None;
+  CssGenericFontFamily genericFontFamily = CssGenericFontFamily::Unspecified;
   CssTextDirection direction = CssTextDirection::Ltr;
 
   CssLength textIndent;     // First-line indent (deferred resolution)
@@ -180,6 +185,10 @@ struct CssStyle {
     if (base.hasFontWeight()) {
       fontWeight = base.fontWeight;
       defined.fontWeight = 1;
+    }
+    if (base.hasGenericFontFamily()) {
+      genericFontFamily = base.genericFontFamily;
+      defined.genericFontFamily = 1;
     }
     if (base.hasTextDecoration()) {
       textDecoration = base.textDecoration;
@@ -258,6 +267,7 @@ struct CssStyle {
   [[nodiscard]] bool hasTextAlign() const { return defined.textAlign; }
   [[nodiscard]] bool hasFontStyle() const { return defined.fontStyle; }
   [[nodiscard]] bool hasFontWeight() const { return defined.fontWeight; }
+  [[nodiscard]] bool hasGenericFontFamily() const { return defined.genericFontFamily; }
   [[nodiscard]] bool hasTextDecoration() const { return defined.textDecoration; }
   [[nodiscard]] bool hasTextIndent() const { return defined.textIndent; }
   [[nodiscard]] bool hasMarginTop() const { return defined.marginTop; }
