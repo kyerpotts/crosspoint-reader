@@ -190,14 +190,6 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
 }  // namespace
 
 void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
-  // The font-prewarm scan pass only accumulates glyphs; an image contributes
-  // none, and its DirectPixelWriter output bypasses the renderer's scan-mode
-  // suppression, so it would otherwise do a full (discarded) cache render every
-  // page view. Skip it here. The image still draws in the real BW/grayscale
-  // passes; on first view this just moves the one-time decode to the BW pass.
-  FontCacheManager* fcm = renderer.getFontCacheManager();
-  if (fcm && fcm->isScanning()) return;
-
   LOG_DBG("IMG", "Rendering image at %d,%d: %s (%dx%d)", x, y, imagePath.c_str(), width, height);
 
   const int screenWidth = renderer.getScreenWidth();

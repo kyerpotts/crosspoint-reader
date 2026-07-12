@@ -45,7 +45,7 @@ class PageLine final : public PageElement {
               bool foregroundBlack = true) override;
   bool serialize(FsFile& file) override;
   PageElementTag getTag() const override { return TAG_PageLine; }
-  bool collectGlyphDemand(GlyphDemandCollector& demand) const;
+  bool collectGlyphDemand(GlyphDemandCollector& primaryDemand, GlyphDemandCollector& secondaryDemand) const;
   static std::unique_ptr<PageLine> deserialize(FsFile& file);
 };
 
@@ -125,7 +125,7 @@ class PageTableFragment final : public PageElement {
   PageElementTag getTag() const override { return TAG_PageTableFragment; }
   static std::unique_ptr<PageTableFragment> deserialize(FsFile& file);
   uint16_t getHeight() const;
-  bool collectGlyphDemand(GlyphDemandCollector& demand) const;
+  bool collectGlyphDemand(GlyphDemandCollector& primaryDemand, GlyphDemandCollector& secondaryDemand) const;
 };
 
 class Page {
@@ -182,7 +182,7 @@ class Page {
     renderText(renderer, FontRenderContext{fontId, 0}, xOffset, yOffset, foregroundBlack);
   }
   void renderImages(GfxRenderer& renderer, int fontId, int xOffset, int yOffset) const;
-  bool collectGlyphDemand(GlyphDemandCollector& demand) const;
+  bool collectGlyphDemand(GlyphDemandCollector& primaryDemand, GlyphDemandCollector& secondaryDemand) const;
   bool serialize(FsFile& file) const;
   static std::unique_ptr<Page> deserialize(FsFile& file);
 

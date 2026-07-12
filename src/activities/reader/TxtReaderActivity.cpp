@@ -2,9 +2,12 @@
 
 #include <BidiUtils.h>
 #include <FontCacheManager.h>
+#include <FontDecompressor.h>
 #include <GfxRenderer.h>
+#include <GlyphDemandCollector.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <ScratchWorkspace.h>
 #include <Serialization.h>
 #include <Utf8.h>
 
@@ -535,7 +538,8 @@ void TxtReaderActivity::render(RenderLock&&) {
 }
 
 void TxtReaderActivity::renderPage() {
-  const int lineHeight = getReaderLineHeight(renderer, cachedFontId);
+  int pageFontId = cachedFontId;
+  const int lineHeight = getReaderLineHeight(renderer, pageFontId);
   const int contentWidth = viewportWidth;
 
   // Render text lines with alignment
@@ -550,7 +554,7 @@ void TxtReaderActivity::renderPage() {
                           effectiveAlignment == CrossPointSettings::JUSTIFIED)) {
           effectiveAlignment = CrossPointSettings::RIGHT_ALIGN;
         }
-        const int textWidth = renderer.getTextAdvanceX(cachedFontId, line.c_str(), EpdFontFamily::REGULAR);
+        const int textWidth = renderer.getTextAdvanceX(pageFontId, line.c_str(), EpdFontFamily::REGULAR);
 
         // Apply text alignment
         switch (effectiveAlignment) {
@@ -572,17 +576,32 @@ void TxtReaderActivity::renderPage() {
             break;
         }
 
-        renderer.drawText(cachedFontId, x, y, line.c_str(), ReaderUtils::readerForegroundBlack());
+        renderer.drawText(pageFontId, x, y, line.c_str(), ReaderUtils::readerForegroundBlack());
       }
       y += lineHeight;
     }
   };
 
-  // Font prewarm: scan pass accumulates text, then prewarm, then real render
   auto* fcm = renderer.getFontCacheManager();
-  auto scope = fcm->createPrewarmScope();
-  renderLines();  // scan pass — text accumulated, no drawing
-  scope.endScanAndPrewarm();
+  constexpr size_t demandBytes = sizeof(GlyphDemandEntry) * FontDecompressor::MAX_PAGE_GLYPHS;
+  constexpr size_t prewarmScratchBytes = sizeof(uint32_t) * FontDecompressor::MAX_PAGE_GLYPHS + 1;
+  auto scratch = ScratchWorkspace::borrow(demandBytes + prewarmScratchBytes, "txt glyph demand");
+  bool ready = false;
+  if (scratch) {
+    GlyphDemandCollector demand(reinterpret_cast<GlyphDemandEntry*>(scratch.data()), FontDecompressor::MAX_PAGE_GLYPHS);
+    for (const auto& line : currentPageLines) {
+      if (!demand.addUtf8(line.c_str(), EpdFontFamily::REGULAR)) break;
+    }
+    if (!demand.overflowed()) {
+      fcm->clearCache();
+      ready = fcm->prewarmDemand(pageFontId, demand.entries(), demand.size(), scratch.data() + demandBytes,
+                                 prewarmScratchBytes);
+    }
+  }
+  if (!ready && renderer.isSdCardFont(pageFontId)) {
+    pageFontId = SETTINGS.getBuiltInReaderFontId();
+    fcm->clearCache();
+  }
 
   // BW rendering
   renderLines();
@@ -595,7 +614,7 @@ void TxtReaderActivity::renderPage() {
   if (SETTINGS.textAntiAliasing && ReaderUtils::readerForegroundBlack()) {
     ReaderUtils::renderAntiAliased(renderer, [&renderLines]() { renderLines(); });
   }
-  // scope destructor clears font cache via FontCacheManager
+  fcm->clearCache();
 }
 
 void TxtReaderActivity::renderStatusBar() const {

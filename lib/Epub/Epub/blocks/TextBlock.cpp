@@ -200,7 +200,6 @@ void TextBlock::render(const GfxRenderer& renderer, const FontRenderContext& fon
     return;
   }
 
-  const bool scanning = renderer.isFontCacheScanning();
   for (uint16_t i = 0; i < numWords; i++) {
     const int fontId = fonts.resolve(wordFontRole(i));
     const int ascender = renderer.getFontAscenderSize(fontId);
@@ -244,8 +243,7 @@ void TextBlock::render(const GfxRenderer& renderer, const FontRenderContext& fon
     if (dotOffset > 0) {
       renderer.drawText(fontId, wordX + dotOffset, wordY, "\xc2\xb7", foregroundBlack, EpdFontFamily::REGULAR, baseDir);
     }
-
-    if (!scanning && (currentStyle & EpdFontFamily::UNDERLINE) != 0) {
+    if ((currentStyle & EpdFontFamily::UNDERLINE) != 0) {
       int startX = wordX;
       int underlineWidth = renderer.getTextWidth(fontId, word, currentStyle, baseDir);
       const int underlineY = wordY + ascender + 2;
@@ -297,12 +295,13 @@ void TextBlock::render(const GfxRenderer& renderer, const FontRenderContext& fon
   }
 }
 
-bool TextBlock::collectGlyphDemand(GlyphDemandCollector& demand) const {
+bool TextBlock::collectGlyphDemand(GlyphDemandCollector& primaryDemand, GlyphDemandCollector& secondaryDemand) const {
   if (!isValid) {
     return false;
   }
 
   for (uint16_t i = 0; i < numWords; ++i) {
+    GlyphDemandCollector& demand = wordFontRole(i) == FontRole::Secondary ? secondaryDemand : primaryDemand;
     const char* word = wordText(i);
     const auto style = wordStyle(i);
     if (!demand.addUtf8(word, style)) {

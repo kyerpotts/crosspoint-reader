@@ -1,9 +1,12 @@
 #include "ClipSelectionActivity.h"
 
 #include <FontCacheManager.h>
+#include <FontDecompressor.h>
 #include <GfxRenderer.h>
+#include <GlyphDemandCollector.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <ScratchWorkspace.h>
 
 #include <algorithm>
 #include <cstring>
@@ -250,35 +253,46 @@ bool ClipSelectionActivity::switchToPage(const int pageIdx) {
     return false;
   }
 
+  FontRenderContext renderFonts{renderFontId, SETTINGS.getSecondaryReaderFontId()};
   if (auto* fcm = renderer.getFontCacheManager()) {
-    bool renderWithFallback = false;
-    {
-      auto scope = fcm->createPrewarmScope();
-      page->renderText(renderer, FontRenderContext{renderFontId, SETTINGS.getSecondaryReaderFontId()}, marginLeft,
-                       marginTop, ReaderUtils::readerForegroundBlack());
-      if (!scope.endScanAndPrewarm() && renderer.isSdCardFont(renderFontId)) {
-        useFallbackFont("page prewarm");
-        renderWithFallback = true;
-      } else {
-        renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-        page->render(renderer, FontRenderContext{renderFontId, SETTINGS.getSecondaryReaderFontId()}, marginLeft,
-                     marginTop, ReaderUtils::readerForegroundBlack());
+    constexpr size_t demandBytes = sizeof(GlyphDemandEntry) * FontDecompressor::MAX_PAGE_GLYPHS;
+    constexpr size_t prewarmScratchBytes = sizeof(uint32_t) * FontDecompressor::MAX_PAGE_GLYPHS + 1;
+    auto scratch = ScratchWorkspace::borrow(demandBytes * 2 + prewarmScratchBytes, "clip mixed glyph demand");
+    bool ready = false;
+    if (scratch) {
+      GlyphDemandCollector primary(reinterpret_cast<GlyphDemandEntry*>(scratch.data()),
+                                   FontDecompressor::MAX_PAGE_GLYPHS);
+      GlyphDemandCollector secondary(reinterpret_cast<GlyphDemandEntry*>(scratch.data() + demandBytes),
+                                     FontDecompressor::MAX_PAGE_GLYPHS);
+      uint8_t* prewarmScratch = scratch.data() + demandBytes * 2;
+      if (page->collectGlyphDemand(primary, secondary) && !primary.overflowed() && !secondary.overflowed()) {
+        if (!renderFonts.hasSecondary()) primary.mergeFrom(secondary);
+        fcm->clearCache();
+        ready = fcm->prewarmDemand(renderFonts.primaryId, primary.entries(), primary.size(), prewarmScratch,
+                                   prewarmScratchBytes);
+        if (ready && renderFonts.hasSecondary() && secondary.size() > 0 &&
+            !fcm->prewarmDemand(renderFonts.secondaryId, secondary.entries(), secondary.size(), prewarmScratch,
+                                prewarmScratchBytes)) {
+          fcm->clearCache(renderFonts.secondaryId);
+          renderFonts.secondaryId = 0;
+          ready = primary.mergeFrom(secondary);
+          if (ready) {
+            fcm->clearCache(renderFonts.primaryId);
+            ready = fcm->prewarmDemand(renderFonts.primaryId, primary.entries(), primary.size(), prewarmScratch,
+                                       prewarmScratchBytes);
+          }
+        }
       }
     }
-    if (renderWithFallback) {
-      auto fallbackScope = fcm->createPrewarmScope();
-      page->renderText(renderer, FontRenderContext{renderFontId, SETTINGS.getSecondaryReaderFontId()}, marginLeft,
-                       marginTop, ReaderUtils::readerForegroundBlack());
-      fallbackScope.endScanAndPrewarm();
-      renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-      page->render(renderer, FontRenderContext{renderFontId, SETTINGS.getSecondaryReaderFontId()}, marginLeft,
-                   marginTop, ReaderUtils::readerForegroundBlack());
+    if (!ready && renderer.isSdCardFont(renderFonts.primaryId)) {
+      useFallbackFont("page demand prewarm");
+      renderFonts.primaryId = renderFontId;
+      renderFonts.secondaryId = 0;
     }
-  } else {
-    renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-    page->render(renderer, FontRenderContext{renderFontId, SETTINGS.getSecondaryReaderFontId()}, marginLeft, marginTop,
-                 ReaderUtils::readerForegroundBlack());
   }
+  renderer.clearScreen(ReaderUtils::readerBackgroundColor());
+  page->render(renderer, renderFonts, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+  if (auto* fcm = renderer.getFontCacheManager()) fcm->clearCache();
 
   storeCurrentBuffer();
   currentDisplayPage = pageIdx;

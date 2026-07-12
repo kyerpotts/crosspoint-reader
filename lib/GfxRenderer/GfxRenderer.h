@@ -83,16 +83,10 @@ class GfxRenderer {
     bool isLocked() const { return locked_; }
   };
 
-  // Mutable because ensureSdCardFontReady() is const (called from layout code
-  // that holds a const GfxRenderer&) but triggers SD card reads and heap
-  // allocation inside the SdCardFont objects. Same pragmatic compromise as
-  // fontCacheManager_ below.
+  // SD font registration and cache manager ownership live outside the renderer.
+  // Pointers remain valid only while their respective systems are loaded.
   mutable std::map<int, SdCardFont*> sdCardFonts_;
-
-  // Mutable because drawText() is const but needs to delegate scan-mode
-  // recording to the (non-const) FontCacheManager. Same pragmatic compromise
-  // as before, concentrated in a single pointer instead of four fields.
-  mutable FontCacheManager* fontCacheManager_ = nullptr;
+  FontCacheManager* fontCacheManager_ = nullptr;
 
   void renderChar(const EpdFontFamily& fontFamily, uint32_t cp, int* x, int* y, bool pixelState,
                   EpdFontFamily::Style style) const;
@@ -146,7 +140,6 @@ class GfxRenderer {
   }
   void setFontCacheManager(FontCacheManager* m) { fontCacheManager_ = m; }
   FontCacheManager* getFontCacheManager() const { return fontCacheManager_; }
-  bool isFontCacheScanning() const;
   const std::map<int, EpdFontFamily>& getFontMap() const { return fontMap; }
   void registerSdCardFont(int fontId, SdCardFont* font) { sdCardFonts_[fontId] = font; }
   void unregisterSdCardFont(int fontId) { removeFont(fontId); }

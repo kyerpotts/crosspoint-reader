@@ -33,8 +33,8 @@ void PageLine::render(GfxRenderer& renderer, const FontRenderContext& fonts, con
   block->render(renderer, fonts, xPos + xOffset, yPos + yOffset, foregroundBlack);
 }
 
-bool PageLine::collectGlyphDemand(GlyphDemandCollector& demand) const {
-  return block && block->collectGlyphDemand(demand);
+bool PageLine::collectGlyphDemand(GlyphDemandCollector& primaryDemand, GlyphDemandCollector& secondaryDemand) const {
+  return block && block->collectGlyphDemand(primaryDemand, secondaryDemand);
 }
 
 bool PageLine::serialize(FsFile& file) {
@@ -245,11 +245,12 @@ uint16_t PageTableFragment::getHeight() const {
   return total;
 }
 
-bool PageTableFragment::collectGlyphDemand(GlyphDemandCollector& demand) const {
+bool PageTableFragment::collectGlyphDemand(GlyphDemandCollector& primaryDemand,
+                                           GlyphDemandCollector& secondaryDemand) const {
   for (const auto& row : rows) {
     for (const auto& cell : row.cells) {
       for (const auto& line : cell.lines) {
-        if (!line || !line->collectGlyphDemand(demand)) {
+        if (!line || !line->collectGlyphDemand(primaryDemand, secondaryDemand)) {
           return false;
         }
       }
@@ -290,8 +291,8 @@ void PageTableFragment::render(GfxRenderer& renderer, const FontRenderContext& f
       const int cellTextY = drawY + currentY + cellPadding;
 
       for (size_t lineIndex = 0; lineIndex < cell.lines.size(); lineIndex++) {
-        cell.lines[lineIndex]->render(renderer, fonts, cellTextX,
-                                      cellTextY + static_cast<int>(lineIndex) * lineHeight, foregroundBlack);
+        cell.lines[lineIndex]->render(renderer, fonts, cellTextX, cellTextY + static_cast<int>(lineIndex) * lineHeight,
+                                      foregroundBlack);
       }
     }
 
@@ -383,19 +384,19 @@ void Page::renderImages(GfxRenderer& renderer, const int fontId, const int xOffs
                              [](const PageElement& element) { return element.getTag() == TAG_PageImage; });
 }
 
-bool Page::collectGlyphDemand(GlyphDemandCollector& demand) const {
+bool Page::collectGlyphDemand(GlyphDemandCollector& primaryDemand, GlyphDemandCollector& secondaryDemand) const {
   for (const auto& element : elements) {
     if (!element) {
       return false;
     }
     switch (element->getTag()) {
       case TAG_PageLine:
-        if (!static_cast<const PageLine&>(*element).collectGlyphDemand(demand)) {
+        if (!static_cast<const PageLine&>(*element).collectGlyphDemand(primaryDemand, secondaryDemand)) {
           return false;
         }
         break;
       case TAG_PageTableFragment:
-        if (!static_cast<const PageTableFragment&>(*element).collectGlyphDemand(demand)) {
+        if (!static_cast<const PageTableFragment&>(*element).collectGlyphDemand(primaryDemand, secondaryDemand)) {
           return false;
         }
         break;

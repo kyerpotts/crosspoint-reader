@@ -13,9 +13,8 @@ TEST(GlyphDemandCollectorTest, MergesStylesForDuplicateCodepoints) {
 
   ASSERT_EQ(demand.size(), 1U);
   EXPECT_EQ(demand.entries()[0].codepoint, U'a');
-  EXPECT_EQ(demand.entries()[0].styleMask,
-            GlyphDemandCollector::styleBit(EpdFontFamily::REGULAR) |
-                GlyphDemandCollector::styleBit(EpdFontFamily::BOLD));
+  EXPECT_EQ(demand.entries()[0].styleMask, GlyphDemandCollector::styleBit(EpdFontFamily::REGULAR) |
+                                               GlyphDemandCollector::styleBit(EpdFontFamily::BOLD));
 }
 
 TEST(GlyphDemandCollectorTest, DecodesUtf8AndKeepsInsertionOrder) {
@@ -77,4 +76,22 @@ TEST(GlyphDemandCollectorTest, RejectsInvalidStorageWithoutWriting) {
   EXPECT_TRUE(nullDemand.overflowed());
   EXPECT_FALSE(zeroDemand.add(U'a', EpdFontFamily::REGULAR));
   EXPECT_TRUE(zeroDemand.overflowed());
+}
+
+TEST(GlyphDemandCollectorTest, MergesFallbackDemandWithoutLosingStyles) {
+  std::array<GlyphDemandEntry, 8> primaryStorage{};
+  std::array<GlyphDemandEntry, 8> secondaryStorage{};
+  GlyphDemandCollector primary(primaryStorage.data(), primaryStorage.size());
+  GlyphDemandCollector secondary(secondaryStorage.data(), secondaryStorage.size());
+  ASSERT_TRUE(primary.add(U'a', EpdFontFamily::REGULAR));
+  ASSERT_TRUE(secondary.add(U'b', EpdFontFamily::BOLD));
+  ASSERT_TRUE(secondary.add(U'a', EpdFontFamily::ITALIC));
+
+  ASSERT_TRUE(primary.mergeFrom(secondary));
+
+  ASSERT_EQ(primary.size(), 2U);
+  EXPECT_EQ(primary.entries()[0].styleMask, GlyphDemandCollector::styleBit(EpdFontFamily::REGULAR) |
+                                                GlyphDemandCollector::styleBit(EpdFontFamily::ITALIC));
+  EXPECT_EQ(primary.entries()[1].codepoint, U'b');
+  EXPECT_EQ(primary.entries()[1].styleMask, GlyphDemandCollector::styleBit(EpdFontFamily::BOLD));
 }

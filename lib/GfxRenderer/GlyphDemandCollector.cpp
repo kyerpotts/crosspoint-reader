@@ -45,6 +45,17 @@ bool GlyphDemandCollector::addUtf8(const char* text, const EpdFontFamily::Style 
   return true;
 }
 
+bool GlyphDemandCollector::mergeFrom(const GlyphDemandCollector& other) {
+  if (overflowed_ || other.overflowed_) return false;
+  for (uint16_t i = 0; i < other.size_; ++i) {
+    for (uint8_t styleIndex = 0; styleIndex < 4; ++styleIndex) {
+      if ((other.entries_[i].styleMask & (1U << styleIndex)) == 0) continue;
+      if (!add(other.entries_[i].codepoint, static_cast<EpdFontFamily::Style>(styleIndex))) return false;
+    }
+  }
+  return true;
+}
+
 void GlyphDemandCollector::reset() {
   size_ = 0;
   overflowed_ = entries_ == nullptr || capacity_ == 0;

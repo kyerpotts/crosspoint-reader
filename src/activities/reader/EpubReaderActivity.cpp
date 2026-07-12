@@ -5,9 +5,9 @@
 #include <Epub/blocks/TextBlock.h>
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
-#include <GlyphDemandCollector.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <GlyphDemandCollector.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
@@ -570,9 +570,10 @@ uint16_t resolveClippingJumpPage(Section& section, const Clipping& clipping, con
   return resolvedPage;
 }
 
-bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fontId, const int marginLeft,
-                           const int marginTop, const bool foregroundBlack, const bool needsTextGrayscale,
-                           const bool needsImageGrayscale, TiledGrayscaleTimings& timings) {
+bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const FontRenderContext& fonts,
+                           const int marginLeft, const int marginTop, const bool foregroundBlack,
+                           const bool needsTextGrayscale, const bool needsImageGrayscale,
+                           TiledGrayscaleTimings& timings) {
   if ((!needsTextGrayscale && !needsImageGrayscale) || !renderer.supportsStripGrayscale()) {
     return false;
   }
@@ -597,10 +598,9 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
       renderer.beginStripTarget(scratch.get(), y, rows);
       renderer.clearScreen(0x00);
       if (needsTextGrayscale) {
-        page.render(renderer, FontRenderContext{fontId, SETTINGS.getSecondaryReaderFontId()}, marginLeft, marginTop,
-                    foregroundBlack);
+        page.render(renderer, fonts, marginLeft, marginTop, foregroundBlack);
       } else {
-        page.renderImages(renderer, fontId, marginLeft, marginTop);
+        page.renderImages(renderer, fonts.primaryId, marginLeft, marginTop);
       }
       renderer.endStripTarget();
       renderer.writeGrayscalePlaneStrip(lsbPlane, scratch.get(), y, rows);
@@ -3808,11 +3808,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         return false;
       }
       if (!section->loadSectionFile(fontId, SETTINGS.getSecondaryReaderFontId(), SETTINGS.getReaderLineCompression(),
-                                    SETTINGS.extraParagraphSpacing,
-                                    SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth,
-                                    viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
-                                    SETTINGS.imageRendering, SETTINGS.bionicReadingEnabled,
-                                    SETTINGS.guideReadingEnabled, renderMode)) {
+                                    SETTINGS.extraParagraphSpacing, SETTINGS.forceParagraphIndents,
+                                    SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
+                                    SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle, SETTINGS.imageRendering,
+                                    SETTINGS.bionicReadingEnabled, SETTINGS.guideReadingEnabled, renderMode)) {
         section.reset();
         return false;
       }
@@ -3858,11 +3857,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         pagesUntilFullRefresh = 1;
         const bool buildSucceeded = section->createSectionFile(
             fontId, SETTINGS.getSecondaryReaderFontId(), SETTINGS.getReaderLineCompression(),
-            SETTINGS.extraParagraphSpacing,
-            SETTINGS.forceParagraphIndents,
-            SETTINGS.paragraphAlignment, viewportWidth, viewportHeight, SETTINGS.hyphenationEnabled,
-            profile.embeddedStyle, SETTINGS.imageRendering, profile.bionicReadingEnabled, profile.guideReadingEnabled,
-            popupFn, &attemptImagesWereSuppressed, &attemptLayoutAbortedForLowMemory, profile.renderMode, buildOptions);
+            SETTINGS.extraParagraphSpacing, SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth,
+            viewportHeight, SETTINGS.hyphenationEnabled, profile.embeddedStyle, SETTINGS.imageRendering,
+            profile.bionicReadingEnabled, profile.guideReadingEnabled, popupFn, &attemptImagesWereSuppressed,
+            &attemptLayoutAbortedForLowMemory, profile.renderMode, buildOptions);
         imagesWereSuppressed = imagesWereSuppressed || attemptImagesWereSuppressed;
         layoutAbortedForLowMemory = attemptLayoutAbortedForLowMemory;
         if (buildSucceeded) {
@@ -4262,24 +4260,73 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   auto* fcm = renderer.getFontCacheManager();
   fcm->resetStats();
   const auto heapBefore = MemoryBudget::snapshot();
-  bool demandPrewarmed = false;
-  {
-    constexpr size_t demandBytes = sizeof(GlyphDemandEntry) * FontDecompressor::MAX_PAGE_GLYPHS;
-    auto demandScratch = ScratchWorkspace::borrow(demandBytes, "reader glyph demand");
-    if (demandScratch) {
-      auto* entries = reinterpret_cast<GlyphDemandEntry*>(demandScratch.data());
-      GlyphDemandCollector demand(entries, FontDecompressor::MAX_PAGE_GLYPHS);
-      if (page->collectGlyphDemand(demand) && !demand.overflowed()) {
-        fcm->clearCache();
-        demandPrewarmed = fcm->prewarmDemand(fontId, demand.entries(), demand.size());
+  FontRenderContext renderFonts{fontId, SETTINGS.getSecondaryReaderFontId()};
+  constexpr size_t demandBytes = sizeof(GlyphDemandEntry) * FontDecompressor::MAX_PAGE_GLYPHS;
+  constexpr size_t prewarmScratchBytes = sizeof(uint32_t) * FontDecompressor::MAX_PAGE_GLYPHS + 1;
+  constexpr size_t totalDemandScratchBytes = demandBytes * 2 + prewarmScratchBytes;
+  auto demandScratch = ScratchWorkspace::borrow(totalDemandScratchBytes, "reader mixed glyph demand");
+  if (demandScratch) {
+    auto* primaryEntries = reinterpret_cast<GlyphDemandEntry*>(demandScratch.data());
+    auto* secondaryEntries = reinterpret_cast<GlyphDemandEntry*>(demandScratch.data() + demandBytes);
+    uint8_t* prewarmScratch = demandScratch.data() + demandBytes * 2;
+    GlyphDemandCollector primaryDemand(primaryEntries, FontDecompressor::MAX_PAGE_GLYPHS);
+    GlyphDemandCollector secondaryDemand(secondaryEntries, FontDecompressor::MAX_PAGE_GLYPHS);
+    const bool collected = page->collectGlyphDemand(primaryDemand, secondaryDemand) && !primaryDemand.overflowed() &&
+                           !secondaryDemand.overflowed();
+
+    if (collected) {
+      bool demandsMerged = false;
+      if (secondaryDemand.size() > 0 && !renderFonts.hasSecondary()) {
+        demandsMerged = primaryDemand.mergeFrom(secondaryDemand);
       }
+
+      if (secondaryDemand.size() == 0 || renderFonts.hasSecondary() || demandsMerged) {
+        fcm->clearCache();
+        bool primaryReady = fcm->prewarmDemand(renderFonts.primaryId, primaryDemand.entries(), primaryDemand.size(),
+                                               prewarmScratch, prewarmScratchBytes);
+        if (primaryReady && renderFonts.hasSecondary() && secondaryDemand.size() > 0) {
+          const bool secondaryReady = fcm->prewarmDemand(renderFonts.secondaryId, secondaryDemand.entries(),
+                                                         secondaryDemand.size(), prewarmScratch, prewarmScratchBytes);
+          if (!secondaryReady) {
+            fcm->clearCache(renderFonts.secondaryId);
+            renderFonts.secondaryId = 0;
+            if (primaryDemand.mergeFrom(secondaryDemand)) {
+              fcm->clearCache(renderFonts.primaryId);
+              primaryReady = fcm->prewarmDemand(renderFonts.primaryId, primaryDemand.entries(), primaryDemand.size(),
+                                                prewarmScratch, prewarmScratchBytes);
+            } else {
+              primaryReady = false;
+            }
+          }
+        }
+
+        if (!primaryReady && renderer.isSdCardFont(renderFonts.primaryId)) {
+          renderFonts.primaryId = SETTINGS.getBuiltInReaderFontId();
+          renderFonts.secondaryId = 0;
+          fcm->clearCache();
+          if (primaryDemand.mergeFrom(secondaryDemand)) {
+            fcm->prewarmDemand(renderFonts.primaryId, primaryDemand.entries(), primaryDemand.size(), prewarmScratch,
+                               prewarmScratchBytes);
+          }
+        }
+      } else {
+        renderFonts.primaryId = SETTINGS.getBuiltInReaderFontId();
+        renderFonts.secondaryId = 0;
+        fcm->clearCache();
+      }
+      LOG_DBG("ERS", "Glyph demand: primary=%u secondary=%u renderPrimary=%d renderSecondary=%d", primaryDemand.size(),
+              secondaryDemand.size(), renderFonts.primaryId, renderFonts.secondaryId);
+    } else {
+      if (renderer.isSdCardFont(renderFonts.primaryId)) renderFonts.primaryId = SETTINGS.getBuiltInReaderFontId();
+      renderFonts.secondaryId = 0;
+      fcm->clearCache();
+      LOG_ERR("ERS", "Glyph demand overflow; using built-in fallback");
     }
-  }
-  if (!demandPrewarmed) {
-    auto scope = fcm->createPrewarmScope();
-    page->renderText(renderer, FontRenderContext{fontId, SETTINGS.getSecondaryReaderFontId()}, orientedMarginLeft,
-                     orientedMarginTop);
-    demandPrewarmed = scope.endScanAndPrewarm();
+  } else {
+    if (renderer.isSdCardFont(renderFonts.primaryId)) renderFonts.primaryId = SETTINGS.getBuiltInReaderFontId();
+    renderFonts.secondaryId = 0;
+    fcm->clearCache();
+    LOG_ERR("ERS", "Glyph demand scratch unavailable; using built-in fallback");
   }
   const auto heapAfter = MemoryBudget::snapshot();
   fcm->logStats("prewarm");
@@ -4306,15 +4353,13 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   };
 
   const auto composePageBuffer = [&]() {
-    page->render(renderer, FontRenderContext{fontId, SETTINGS.getSecondaryReaderFontId()}, orientedMarginLeft,
-                 orientedMarginTop, foregroundBlack);
+    page->render(renderer, renderFonts, orientedMarginLeft, orientedMarginTop, foregroundBlack);
     finalizeBufferComposition();
   };
 
   const auto composeGrayscaleBuffer = [&]() {
     if (needsTextGrayscale) {
-      page->render(renderer, FontRenderContext{fontId, SETTINGS.getSecondaryReaderFontId()}, orientedMarginLeft,
-                   orientedMarginTop, foregroundBlack);
+      page->render(renderer, renderFonts, orientedMarginLeft, orientedMarginTop, foregroundBlack);
     } else {
       page->renderImages(renderer, fontId, orientedMarginLeft, orientedMarginTop);
     }
@@ -4412,7 +4457,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   const auto tDisplay = millis();
 
   TiledGrayscaleTimings tiledTimings;
-  if (runTiledGrayscalePass(renderer, *page, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack,
+  if (runTiledGrayscalePass(renderer, *page, renderFonts, orientedMarginLeft, orientedMarginTop, foregroundBlack,
                             needsTextGrayscale, needsImageGrayscale, tiledTimings)) {
     const auto tEnd = millis();
     LOG_DBG("ERS",
@@ -4421,6 +4466,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
             tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tiledTimings.grayLsb - tDisplay,
             tiledTimings.grayMsb - tiledTimings.grayLsb, tiledTimings.grayDisplay - tiledTimings.grayMsb,
             tiledTimings.cleanup - tiledTimings.grayDisplay, tEnd - t0);
+    fcm->clearCache();
     return;
   }
 
@@ -4493,6 +4539,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
             largestBlockPercent(bwStoreHeapBefore), largestBlockPercent(bwStoreHeapAfter), tBwRestore - tBwStore,
             tEnd - t0);
   }
+  fcm->clearCache();
 }
 
 void EpubReaderActivity::drawClippingHighlights(const Page& page, const int fontId, const int orientedMarginTop,
@@ -4778,10 +4825,9 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   }
   bool loadedSection = section->loadSectionFile(
       readerFontId, SETTINGS.getSecondaryReaderFontId(), SETTINGS.getReaderLineCompression(),
-      SETTINGS.extraParagraphSpacing,
-      SETTINGS.forceParagraphIndents,
-      SETTINGS.paragraphAlignment, viewportWidth, viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
-      SETTINGS.imageRendering, SETTINGS.bionicReadingEnabled, SETTINGS.guideReadingEnabled, selectedRenderMode);
+      SETTINGS.extraParagraphSpacing, SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth,
+      viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle, SETTINGS.imageRendering,
+      SETTINGS.bionicReadingEnabled, SETTINGS.guideReadingEnabled, selectedRenderMode);
 
   if (!loadedSection) {
     if (!MemoryBudget::hasHeapForOptionalEpubRebuild("SLP", "EPUB sleep-page cache rebuild", spineIndex)) {
@@ -4816,10 +4862,10 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
       }
       buildSucceeded = section->createSectionFile(
           readerFontId, SETTINGS.getSecondaryReaderFontId(), SETTINGS.getReaderLineCompression(),
-          SETTINGS.extraParagraphSpacing,
-          SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
-          SETTINGS.hyphenationEnabled, profile.embeddedStyle, SETTINGS.imageRendering, profile.bionicReadingEnabled,
-          profile.guideReadingEnabled, []() {}, nullptr, &layoutAbortedForLowMemory, profile.renderMode);
+          SETTINGS.extraParagraphSpacing, SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth,
+          viewportHeight, SETTINGS.hyphenationEnabled, profile.embeddedStyle, SETTINGS.imageRendering,
+          profile.bionicReadingEnabled, profile.guideReadingEnabled, []() {}, nullptr, &layoutAbortedForLowMemory,
+          profile.renderMode);
       if (buildSucceeded) {
         usedRenderMode = profile.renderMode;
       }
@@ -4837,10 +4883,10 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
       }
       buildSucceeded = section->createSectionFile(
           readerFontId, SETTINGS.getSecondaryReaderFontId(), SETTINGS.getReaderLineCompression(),
-          SETTINGS.extraParagraphSpacing,
-          SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
-          SETTINGS.hyphenationEnabled, profile.embeddedStyle, SETTINGS.imageRendering, profile.bionicReadingEnabled,
-          profile.guideReadingEnabled, []() {}, nullptr, &layoutAbortedForLowMemory, profile.renderMode);
+          SETTINGS.extraParagraphSpacing, SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth,
+          viewportHeight, SETTINGS.hyphenationEnabled, profile.embeddedStyle, SETTINGS.imageRendering,
+          profile.bionicReadingEnabled, profile.guideReadingEnabled, []() {}, nullptr, &layoutAbortedForLowMemory,
+          profile.renderMode);
       if (buildSucceeded) {
         safeModeBuildSucceeded = true;
         usedRenderMode = profile.renderMode;

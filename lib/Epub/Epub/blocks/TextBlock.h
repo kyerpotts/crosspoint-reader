@@ -6,8 +6,8 @@
 #include <string>
 #include <vector>
 
-#include "Block.h"
 #include "../FontRole.h"
+#include "Block.h"
 #include "BlockStyle.h"
 
 // Represents one rendered line. Per-word data is packed into one heap arena
@@ -77,7 +77,7 @@ class TextBlock final : public Block {
               const bool foregroundBlack = true) const {
     render(renderer, FontRenderContext{fontId, 0}, x, y, foregroundBlack);
   }
-  bool collectGlyphDemand(GlyphDemandCollector& demand) const;
+  bool collectGlyphDemand(GlyphDemandCollector& primaryDemand, GlyphDemandCollector& secondaryDemand) const;
   BlockType getType() override { return TEXT_BLOCK; }
   bool serialize(HalFile& file) const;
   static std::unique_ptr<TextBlock> deserialize(HalFile& file);

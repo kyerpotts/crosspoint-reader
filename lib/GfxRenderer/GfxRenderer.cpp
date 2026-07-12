@@ -189,8 +189,6 @@ bool GfxRenderer::ensureBitmapScratchBuffers(const size_t outputRowSize, const s
   return true;
 }
 
-bool GfxRenderer::isFontCacheScanning() const { return fontCacheManager_ && fontCacheManager_->isScanning(); }
-
 void GfxRenderer::insertFont(const int fontId, EpdFontFamily font) {
   auto result = fontMap.insert({fontId, font});
   if (!result.second) {
@@ -756,11 +754,6 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     return;
   }
 
-  if (fontCacheManager_ && fontCacheManager_->isScanning()) {
-    fontCacheManager_->recordText(text, fontId, style);
-    return;
-  }
-
   std::string visualBuffer;
   const char* textCursor = resolveVisualText(text, visualBuffer, baseDir);
 
@@ -874,7 +867,6 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
 }
 
 void GfxRenderer::drawLine(int x1, int y1, int x2, int y2, const bool state) const {
-  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
   const int sw = getScreenWidth();
   const int sh = getScreenHeight();
   if (x1 == x2) {
@@ -1101,7 +1093,6 @@ template <Color C>
 void GfxRenderer::fillRectImpl(const int x, const int y, const int width, const int height) const {
   if constexpr (C == Color::Clear) return;
   if (width <= 0 || height <= 0) return;
-  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
 
   // Clip in logical space.
   const int screenW = getScreenWidth();
@@ -1479,8 +1470,6 @@ void GfxRenderer::drawIcon(const uint8_t bitmap[], const int x, const int y, con
 }
 
 void GfxRenderer::drawIcon(const uint8_t bitmap[], const int x, const int y, const int width, const int height) const {
-  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
-
   // Portrait-mode coordinate transform (x<->y swap). Draw black source pixels
   // transparently while preserving sub-byte x offsets; EInkDisplay's transparent
   // blit is byte-aligned, which can visually shift icons when y is not /8.
@@ -1539,8 +1528,6 @@ void GfxRenderer::drawIconInverted(const uint8_t bitmap[], const int x, const in
 
 void GfxRenderer::drawIconInverted(const uint8_t bitmap[], const int x, const int y, const int width,
                                    const int height) const {
-  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
-
   // Portrait-mode coordinate transform (x<->y swap), matching drawIcon.
   // OR with ~srcByte sets framebuffer bits to 1 (white) wherever the icon
   // bitmap is 0 (black), producing a white icon on a black background.
@@ -1595,7 +1582,6 @@ void GfxRenderer::drawIconInverted(const uint8_t bitmap[], const int x, const in
 
 void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, const int maxWidth, const int maxHeight,
                              const float cropX, const float cropY) const {
-  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
   // For 1-bit bitmaps, use optimized 1-bit rendering path (no crop support for 1-bit)
   if (bitmap.is1Bit() && cropX == 0.0f && cropY == 0.0f) {
     drawBitmap1Bit(bitmap, x, y, maxWidth, maxHeight);
@@ -1760,7 +1746,6 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
 
 void GfxRenderer::drawPerspectiveBitmap(const Bitmap& bitmap, const int x, const int y, const int w, const int hL,
                                         const int hR) const {
-  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
   if (w <= 0 || hL <= 0 || hR <= 0) return;
 
   const int srcW = bitmap.getWidth();

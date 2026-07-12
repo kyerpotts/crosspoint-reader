@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -17,6 +18,8 @@
 // bumped manually when the firmware is updated to support a new format.
 // Reader enforcement: SdCardFont::load().
 #define CPFONT_VERSION 4
+
+struct GlyphDemandEntry;
 
 class SdCardFont {
  public:
@@ -43,6 +46,7 @@ class SdCardFont {
   // When metadataOnly=true, only glyph metrics are loaded (no bitmap data).
   // Returns number of glyphs that couldn't be loaded (0 on full success).
   int prewarm(const char* utf8Text, uint8_t styleMask = 0x0F, bool metadataOnly = false);
+  int prewarmDemand(const GlyphDemandEntry* entries, uint16_t count, uint8_t* scratch, size_t scratchBytes);
 
   // Build a compact advance-only table for layout measurement.
   // Extracts ALL unique codepoints from words (no MAX_PAGE_GLYPHS cap),

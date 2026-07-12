@@ -1,5 +1,6 @@
 #include "SdCardFont.h"
 
+#include <GlyphDemandCollector.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Utf8.h>
@@ -802,6 +803,82 @@ int SdCardFont::prewarm(const char* utf8Text, uint8_t styleMask, bool metadataOn
   for (uint8_t si = 0; si < MAX_STYLES; si++) {
     if (!(styleMask & (1 << si)) || !styles_[si].present) continue;
     totalMissed += prewarmStyle(si, codepoints.get(), cpCount, metadataOnly);
+  }
+
+  stats_.prewarmTotalMs = millis() - startMs;
+  return totalMissed;
+}
+
+int SdCardFont::prewarmDemand(const GlyphDemandEntry* entries, const uint16_t count, uint8_t* scratch,
+                              const size_t scratchBytes) {
+  lastPrewarmFailed_ = false;
+  if (!loaded_) return failPrewarm(-1);
+  if (!entries || count == 0) return 0;
+  if (!scratch || reinterpret_cast<uintptr_t>(scratch) % alignof(uint32_t) != 0) return failPrewarm(-1);
+
+  const uint32_t capacity = scratchBytes / sizeof(uint32_t);
+  if (capacity < count) return failPrewarm(-1);
+  auto* codepoints = reinterpret_cast<uint32_t*>(scratch);
+  const unsigned long startMs = millis();
+  int totalMissed = 0;
+
+  for (uint8_t actualStyle = 0; actualStyle < MAX_STYLES; ++actualStyle) {
+    if (!styles_[actualStyle].present) continue;
+    uint32_t cpCount = 0;
+    for (uint16_t i = 0; i < count; ++i) {
+      bool demandedForStyle = false;
+      for (uint8_t requestedStyle = 0; requestedStyle < MAX_STYLES; ++requestedStyle) {
+        if ((entries[i].styleMask & (1U << requestedStyle)) != 0 && resolveStyle(requestedStyle) == actualStyle) {
+          demandedForStyle = true;
+          break;
+        }
+      }
+      if (demandedForStyle) codepoints[cpCount++] = entries[i].codepoint;
+    }
+    if (cpCount == 0) continue;
+
+    bool hasReplacement = false;
+    for (uint32_t i = 0; i < cpCount; ++i) {
+      if (codepoints[i] == REPLACEMENT_GLYPH) {
+        hasReplacement = true;
+        break;
+      }
+    }
+    if (!hasReplacement && cpCount < capacity) {
+      codepoints[cpCount++] = REPLACEMENT_GLYPH;
+    }
+
+    auto& style = styles_[actualStyle];
+    loadStyleKernLigatureData(style);
+    if (style.ligaturePairs) {
+      for (uint8_t li = 0; li < style.header.ligaturePairCount; ++li) {
+        const uint32_t leftCp = style.ligaturePairs[li].pair >> 16;
+        const uint32_t rightCp = style.ligaturePairs[li].pair & 0xFFFF;
+        bool hasLeft = false;
+        bool hasRight = false;
+        for (uint32_t i = 0; i < cpCount; ++i) {
+          hasLeft = hasLeft || codepoints[i] == leftCp;
+          hasRight = hasRight || codepoints[i] == rightCp;
+        }
+        if (!hasLeft || !hasRight) continue;
+
+        const uint32_t outputCp = style.ligaturePairs[li].ligatureCp;
+        bool hasOutput = false;
+        for (uint32_t i = 0; i < cpCount; ++i) {
+          if (codepoints[i] == outputCp) {
+            hasOutput = true;
+            break;
+          }
+        }
+        if (!hasOutput && cpCount < capacity) {
+          codepoints[cpCount++] = outputCp;
+        }
+      }
+    }
+
+    std::sort(codepoints, codepoints + cpCount);
+    totalMissed += prewarmStyle(actualStyle, codepoints, cpCount, false);
+    if (lastPrewarmFailed_) return totalMissed;
   }
 
   stats_.prewarmTotalMs = millis() - startMs;

@@ -15,6 +15,7 @@ class GlyphDemandCollector {
 
   bool add(uint32_t codepoint, EpdFontFamily::Style style);
   bool addUtf8(const char* text, EpdFontFamily::Style style);
+  bool mergeFrom(const GlyphDemandCollector& other);
   void reset();
 
   [[nodiscard]] bool overflowed() const { return overflowed_; }
