@@ -1,7 +1,10 @@
 #pragma once
 
+#include <FontDecompressor.h>
+#include <GlyphDemandCollector.h>
 #include <Txt.h>
 
+#include <array>
 #include <vector>
 
 #include "CrossPointSettings.h"
@@ -33,6 +36,9 @@ class TxtReaderActivity final : public Activity {
   int cachedOrientedMarginRight = 0;
   int cachedOrientedMarginBottom = 0;
   int cachedOrientedMarginLeft = 0;
+  std::array<GlyphDemandEntry, FontDecompressor::MAX_PAGE_GLYPHS> glyphDemandEntries = {};
+  alignas(
+      uint32_t) std::array<uint8_t, sizeof(uint32_t) * FontDecompressor::MAX_PAGE_GLYPHS + 1> glyphPrewarmScratch = {};
 
   void renderPage();
   void renderStatusBar() const;

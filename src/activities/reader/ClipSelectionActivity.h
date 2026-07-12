@@ -2,6 +2,8 @@
 
 #include <Epub/Page.h>
 #include <Epub/Section.h>
+#include <FontDecompressor.h>
+#include <GlyphDemandCollector.h>
 #include <Memory.h>
 
 #include <array>
@@ -60,6 +62,9 @@ class ClipSelectionActivity final : public Activity {
   bool usingFallbackFont = false;
   mutable std::array<std::string, 4> prewarmTextByStyle;
   std::vector<int> readingOrder;
+  std::array<GlyphDemandEntry, FontDecompressor::MAX_PAGE_GLYPHS * 2> glyphDemandEntries = {};
+  alignas(
+      uint32_t) std::array<uint8_t, sizeof(uint32_t) * FontDecompressor::MAX_PAGE_GLYPHS + 1> glyphPrewarmScratch = {};
 
   ButtonNavigator buttonNavigator;
 

@@ -7,7 +7,6 @@
 #include <GlyphDemandCollector.h>
 #include <HalStorage.h>
 #include <I18n.h>
-#include <ScratchWorkspace.h>
 #include <Serialization.h>
 #include <Utf8.h>
 
@@ -583,20 +582,16 @@ void TxtReaderActivity::renderPage() {
   };
 
   auto* fcm = renderer.getFontCacheManager();
-  constexpr size_t demandBytes = sizeof(GlyphDemandEntry) * FontDecompressor::MAX_PAGE_GLYPHS;
+  GlyphDemandCollector demand(glyphDemandEntries.data(), FontDecompressor::MAX_PAGE_GLYPHS);
   constexpr size_t prewarmScratchBytes = sizeof(uint32_t) * FontDecompressor::MAX_PAGE_GLYPHS + 1;
-  auto scratch = ScratchWorkspace::borrow(demandBytes + prewarmScratchBytes, "txt glyph demand");
   bool ready = false;
-  if (scratch) {
-    GlyphDemandCollector demand(reinterpret_cast<GlyphDemandEntry*>(scratch.data()), FontDecompressor::MAX_PAGE_GLYPHS);
-    for (const auto& line : currentPageLines) {
-      if (!demand.addUtf8(line.c_str(), EpdFontFamily::REGULAR)) break;
-    }
-    if (!demand.overflowed()) {
-      fcm->clearCache();
-      ready = fcm->prewarmDemand(pageFontId, demand.entries(), demand.size(), scratch.data() + demandBytes,
-                                 prewarmScratchBytes);
-    }
+  for (const auto& line : currentPageLines) {
+    if (!demand.addUtf8(line.c_str(), EpdFontFamily::REGULAR)) break;
+  }
+  if (!demand.overflowed()) {
+    fcm->clearCache();
+    ready = fcm->prewarmDemand(pageFontId, demand.entries(), demand.size(), glyphPrewarmScratch.data(),
+                               prewarmScratchBytes);
   }
   if (!ready && renderer.isSdCardFont(pageFontId)) {
     pageFontId = SETTINGS.getBuiltInReaderFontId();

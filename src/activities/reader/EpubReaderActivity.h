@@ -2,9 +2,12 @@
 #include <Epub.h>
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Section.h>
+#include <FontDecompressor.h>
+#include <GlyphDemandCollector.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#include <array>
 #include <memory>
 #include <optional>
 #include <string>
@@ -134,6 +137,9 @@ class EpubReaderActivity final : public Activity {
   bool completionTriggerSeenBelow = false;
   bool completionTriggerCrossed = false;
   bool lastAtOrPastCompletionTrigger = false;
+  std::array<GlyphDemandEntry, FontDecompressor::MAX_PAGE_GLYPHS * 2> glyphDemandEntries = {};
+  alignas(
+      uint32_t) std::array<uint8_t, sizeof(uint32_t) * FontDecompressor::MAX_PAGE_GLYPHS + 1> glyphPrewarmScratch = {};
 
   // Tracks whether this book is currently removed from Recent Books by the
   // removeReadBooksFromRecents feature (set at End-of-Book, cleared if paged back in).

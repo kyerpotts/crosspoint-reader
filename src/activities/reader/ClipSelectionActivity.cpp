@@ -6,7 +6,6 @@
 #include <GlyphDemandCollector.h>
 #include <I18n.h>
 #include <Logging.h>
-#include <ScratchWorkspace.h>
 
 #include <algorithm>
 #include <cstring>
@@ -255,32 +254,27 @@ bool ClipSelectionActivity::switchToPage(const int pageIdx) {
 
   FontRenderContext renderFonts{renderFontId, SETTINGS.getSecondaryReaderFontId()};
   if (auto* fcm = renderer.getFontCacheManager()) {
-    constexpr size_t demandBytes = sizeof(GlyphDemandEntry) * FontDecompressor::MAX_PAGE_GLYPHS;
-    constexpr size_t prewarmScratchBytes = sizeof(uint32_t) * FontDecompressor::MAX_PAGE_GLYPHS + 1;
-    auto scratch = ScratchWorkspace::borrow(demandBytes * 2 + prewarmScratchBytes, "clip mixed glyph demand");
-    bool ready = false;
-    if (scratch) {
-      GlyphDemandCollector primary(reinterpret_cast<GlyphDemandEntry*>(scratch.data()),
+    GlyphDemandCollector primary(glyphDemandEntries.data(), FontDecompressor::MAX_PAGE_GLYPHS);
+    GlyphDemandCollector secondary(glyphDemandEntries.data() + FontDecompressor::MAX_PAGE_GLYPHS,
                                    FontDecompressor::MAX_PAGE_GLYPHS);
-      GlyphDemandCollector secondary(reinterpret_cast<GlyphDemandEntry*>(scratch.data() + demandBytes),
-                                     FontDecompressor::MAX_PAGE_GLYPHS);
-      uint8_t* prewarmScratch = scratch.data() + demandBytes * 2;
-      if (page->collectGlyphDemand(primary, secondary) && !primary.overflowed() && !secondary.overflowed()) {
-        if (!renderFonts.hasSecondary()) primary.mergeFrom(secondary);
-        fcm->clearCache();
-        ready = fcm->prewarmDemand(renderFonts.primaryId, primary.entries(), primary.size(), prewarmScratch,
-                                   prewarmScratchBytes);
-        if (ready && renderFonts.hasSecondary() && secondary.size() > 0 &&
-            !fcm->prewarmDemand(renderFonts.secondaryId, secondary.entries(), secondary.size(), prewarmScratch,
-                                prewarmScratchBytes)) {
-          fcm->clearCache(renderFonts.secondaryId);
-          renderFonts.secondaryId = 0;
-          ready = primary.mergeFrom(secondary);
-          if (ready) {
-            fcm->clearCache(renderFonts.primaryId);
-            ready = fcm->prewarmDemand(renderFonts.primaryId, primary.entries(), primary.size(), prewarmScratch,
-                                       prewarmScratchBytes);
-          }
+    uint8_t* prewarmScratch = glyphPrewarmScratch.data();
+    constexpr size_t prewarmScratchBytes = sizeof(uint32_t) * FontDecompressor::MAX_PAGE_GLYPHS + 1;
+    bool ready = false;
+    if (page->collectGlyphDemand(primary, secondary) && !primary.overflowed() && !secondary.overflowed()) {
+      if (!renderFonts.hasSecondary()) primary.mergeFrom(secondary);
+      fcm->clearCache();
+      ready = fcm->prewarmDemand(renderFonts.primaryId, primary.entries(), primary.size(), prewarmScratch,
+                                 prewarmScratchBytes);
+      if (ready && renderFonts.hasSecondary() && secondary.size() > 0 &&
+          !fcm->prewarmDemand(renderFonts.secondaryId, secondary.entries(), secondary.size(), prewarmScratch,
+                              prewarmScratchBytes)) {
+        fcm->clearCache(renderFonts.secondaryId);
+        renderFonts.secondaryId = 0;
+        ready = primary.mergeFrom(secondary);
+        if (ready) {
+          fcm->clearCache(renderFonts.primaryId);
+          ready = fcm->prewarmDemand(renderFonts.primaryId, primary.entries(), primary.size(), prewarmScratch,
+                                     prewarmScratchBytes);
         }
       }
     }
