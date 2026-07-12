@@ -17,14 +17,12 @@
 
 namespace {
 constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
-// v45: TextBlock word data uses a flat arena, and chapter-opener TOC anchors
-// resolve at the heading start so number, ornament, and title stay together.
-constexpr uint8_t SECTION_FILE_VERSION = 45;
+// v46: Section cache identity includes both primary and secondary font IDs.
 constexpr uint16_t INITIAL_SECTION_PAGE_LUT_ENTRIES = 1024;
-constexpr uint32_t HEADER_SIZE = sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) + sizeof(float) +
-                                 sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) +
-                                 sizeof(uint16_t) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(bool) +
-                                 sizeof(bool) + sizeof(uint8_t) + sizeof(uint32_t) + sizeof(uint32_t) +
+constexpr uint32_t HEADER_SIZE = sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) + sizeof(int) +
+                                 sizeof(float) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) +
+                                 sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) +
+                                 sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint32_t) + sizeof(uint32_t) +
                                  sizeof(uint32_t) + sizeof(uint32_t);
 constexpr size_t SECTION_HTML_STREAM_CHUNK_SIZE = 8192;
 constexpr size_t LOW_MEMORY_SECTION_HTML_STREAM_CHUNK_SIZE = 1024;
@@ -117,27 +115,30 @@ uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
   return position;
 }
 
-bool Section::writeSectionFileHeader(const int fontId, const float lineCompression, const bool extraParagraphSpacing,
-                                     const bool forceParagraphIndents, const uint8_t paragraphAlignment,
-                                     const uint16_t viewportWidth, const uint16_t viewportHeight,
-                                     const bool hyphenationEnabled, const bool embeddedStyle,
-                                     const uint8_t imageRendering, const bool bionicReadingEnabled,
-                                     const bool guideReadingEnabled, const EpubRenderMode renderMode) {
+bool Section::writeSectionFileHeader(const int fontId, const int secondaryFontId, const float lineCompression,
+                                     const bool extraParagraphSpacing, const bool forceParagraphIndents,
+                                     const uint8_t paragraphAlignment, const uint16_t viewportWidth,
+                                     const uint16_t viewportHeight, const bool hyphenationEnabled,
+                                     const bool embeddedStyle, const uint8_t imageRendering,
+                                     const bool bionicReadingEnabled, const bool guideReadingEnabled,
+                                     const EpubRenderMode renderMode) {
   if (!file) {
     LOG_DBG("SCT", "File not open for writing header");
     return false;
   }
   static_assert(HEADER_SIZE == sizeof(SECTION_CACHE_MAGIC) + sizeof(SECTION_FILE_VERSION) + sizeof(fontId) +
-                                   sizeof(lineCompression) + sizeof(extraParagraphSpacing) +
-                                   sizeof(forceParagraphIndents) + sizeof(paragraphAlignment) + sizeof(viewportWidth) +
-                                   sizeof(viewportHeight) + sizeof(pageCount) + sizeof(hyphenationEnabled) +
-                                   sizeof(embeddedStyle) + sizeof(imageRendering) + sizeof(bionicReadingEnabled) +
-                                   sizeof(guideReadingEnabled) + sizeof(uint8_t) + sizeof(uint32_t) + sizeof(uint32_t) +
-                                   sizeof(uint32_t) + sizeof(uint32_t),
+                                   sizeof(secondaryFontId) + sizeof(lineCompression) +
+                                   sizeof(extraParagraphSpacing) + sizeof(forceParagraphIndents) +
+                                   sizeof(paragraphAlignment) + sizeof(viewportWidth) + sizeof(viewportHeight) +
+                                   sizeof(pageCount) + sizeof(hyphenationEnabled) + sizeof(embeddedStyle) +
+                                   sizeof(imageRendering) + sizeof(bionicReadingEnabled) +
+                                   sizeof(guideReadingEnabled) + sizeof(uint8_t) + sizeof(uint32_t) +
+                                   sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t),
                 "Header size mismatch");
   return serialization::tryWritePod(file, SECTION_CACHE_MAGIC) &&
          serialization::tryWritePod(file, SECTION_FILE_VERSION) && serialization::tryWritePod(file, fontId) &&
-         serialization::tryWritePod(file, lineCompression) && serialization::tryWritePod(file, extraParagraphSpacing) &&
+         serialization::tryWritePod(file, secondaryFontId) && serialization::tryWritePod(file, lineCompression) &&
+         serialization::tryWritePod(file, extraParagraphSpacing) &&
          serialization::tryWritePod(file, forceParagraphIndents) &&
          serialization::tryWritePod(file, paragraphAlignment) && serialization::tryWritePod(file, viewportWidth) &&
          serialization::tryWritePod(file, viewportHeight) && serialization::tryWritePod(file, hyphenationEnabled) &&
@@ -156,10 +157,11 @@ bool Section::writeSectionFileHeader(const int fontId, const float lineCompressi
          serialization::tryWritePod(file, static_cast<uint32_t>(0));  // Placeholder for li LUT offset (patched later)
 }
 
-bool Section::loadSectionFile(const int fontId, const float lineCompression, const bool extraParagraphSpacing,
-                              const bool forceParagraphIndents, const uint8_t paragraphAlignment,
-                              const uint16_t viewportWidth, const uint16_t viewportHeight,
-                              const bool hyphenationEnabled, const bool embeddedStyle, const uint8_t imageRendering,
+bool Section::loadSectionFile(const int fontId, const int secondaryFontId, const float lineCompression,
+                              const bool extraParagraphSpacing, const bool forceParagraphIndents,
+                              const uint8_t paragraphAlignment, const uint16_t viewportWidth,
+                              const uint16_t viewportHeight, const bool hyphenationEnabled,
+                              const bool embeddedStyle, const uint8_t imageRendering,
                               const bool bionicReadingEnabled, const bool guideReadingEnabled,
                               const EpubRenderMode renderMode) {
   if (!Storage.openFileForRead("SCT", filePath, file)) {
@@ -198,6 +200,7 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
     }
 
     int fileFontId;
+    int fileSecondaryFontId;
     uint16_t fileViewportWidth, fileViewportHeight;
     float fileLineCompression;
     bool fileExtraParagraphSpacing;
@@ -209,7 +212,9 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
     bool fileBionicReadingEnabled;
     bool fileGuideReadingEnabled;
     uint8_t fileRenderMode;
-    if (!serialization::tryReadPod(file, fileFontId) || !serialization::tryReadPod(file, fileLineCompression) ||
+    if (!serialization::tryReadPod(file, fileFontId) ||
+        !serialization::tryReadPod(file, fileSecondaryFontId) ||
+        !serialization::tryReadPod(file, fileLineCompression) ||
         !serialization::tryReadPod(file, fileExtraParagraphSpacing) ||
         !serialization::tryReadPod(file, fileForceParagraphIndents) ||
         !serialization::tryReadPod(file, fileParagraphAlignment) ||
@@ -224,9 +229,11 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
       return false;
     }
 
-    if (fontId != fileFontId || lineCompression != fileLineCompression ||
-        extraParagraphSpacing != fileExtraParagraphSpacing || forceParagraphIndents != fileForceParagraphIndents ||
-        paragraphAlignment != fileParagraphAlignment || viewportWidth != fileViewportWidth ||
+    const SectionCacheIdentity fileIdentity{version, fileFontId, fileSecondaryFontId};
+    if (!fileIdentity.matches(fontId, secondaryFontId) || lineCompression != fileLineCompression ||
+        extraParagraphSpacing != fileExtraParagraphSpacing ||
+        forceParagraphIndents != fileForceParagraphIndents || paragraphAlignment != fileParagraphAlignment ||
+        viewportWidth != fileViewportWidth ||
         viewportHeight != fileViewportHeight || hyphenationEnabled != fileHyphenationEnabled ||
         embeddedStyle != fileEmbeddedStyle || imageRendering != fileImageRendering ||
         bionicReadingEnabled != fileBionicReadingEnabled || guideReadingEnabled != fileGuideReadingEnabled ||
@@ -267,10 +274,11 @@ bool Section::clearCache() const {
   return true;
 }
 
-bool Section::createSectionFile(const int fontId, const float lineCompression, const bool extraParagraphSpacing,
-                                const bool forceParagraphIndents, const uint8_t paragraphAlignment,
-                                const uint16_t viewportWidth, const uint16_t viewportHeight,
-                                const bool hyphenationEnabled, const bool embeddedStyle, const uint8_t imageRendering,
+bool Section::createSectionFile(const int fontId, const int secondaryFontId, const float lineCompression,
+                                const bool extraParagraphSpacing, const bool forceParagraphIndents,
+                                const uint8_t paragraphAlignment, const uint16_t viewportWidth,
+                                const uint16_t viewportHeight, const bool hyphenationEnabled,
+                                const bool embeddedStyle, const uint8_t imageRendering,
                                 const bool bionicReadingEnabled, const bool guideReadingEnabled,
                                 const std::function<void()>& popupFn, bool* imagesWereSuppressed,
                                 bool* layoutAbortedForLowMemory, const EpubRenderMode renderMode,
@@ -374,9 +382,10 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     cleanupTempHtml();
     return false;
   }
-  if (!writeSectionFileHeader(fontId, lineCompression, extraParagraphSpacing, forceParagraphIndents, paragraphAlignment,
-                              viewportWidth, viewportHeight, hyphenationEnabled, embeddedStyle, imageRendering,
-                              effectiveBionicReadingEnabled, effectiveGuideReadingEnabled, renderMode)) {
+  if (!writeSectionFileHeader(fontId, secondaryFontId, lineCompression, extraParagraphSpacing, forceParagraphIndents,
+                              paragraphAlignment, viewportWidth, viewportHeight, hyphenationEnabled, embeddedStyle,
+                              imageRendering, effectiveBionicReadingEnabled, effectiveGuideReadingEnabled,
+                              renderMode)) {
     LOG_ERR("SCT", "Failed to write section header");
     file.close();
     Storage.remove(tmpSectionPath.c_str());

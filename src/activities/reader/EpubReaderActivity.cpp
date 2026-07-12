@@ -3794,7 +3794,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
                 fontId, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
         return false;
       }
-      if (!section->loadSectionFile(fontId, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
+      if (!section->loadSectionFile(fontId, 0, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
                                     SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth,
                                     viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
                                     SETTINGS.imageRendering, SETTINGS.bionicReadingEnabled,
@@ -3843,7 +3843,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         // ghost-cleanup path -- otherwise the "INDEXING" text ghosts under the rendered page.
         pagesUntilFullRefresh = 1;
         const bool buildSucceeded = section->createSectionFile(
-            fontId, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing, SETTINGS.forceParagraphIndents,
+            fontId, 0, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
+            SETTINGS.forceParagraphIndents,
             SETTINGS.paragraphAlignment, viewportWidth, viewportHeight, SETTINGS.hyphenationEnabled,
             profile.embeddedStyle, SETTINGS.imageRendering, profile.bionicReadingEnabled, profile.guideReadingEnabled,
             popupFn, &attemptImagesWereSuppressed, &attemptLayoutAbortedForLowMemory, profile.renderMode, buildOptions);
@@ -4758,7 +4759,8 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
     return false;
   }
   bool loadedSection = section->loadSectionFile(
-      readerFontId, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing, SETTINGS.forceParagraphIndents,
+      readerFontId, 0, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
+      SETTINGS.forceParagraphIndents,
       SETTINGS.paragraphAlignment, viewportWidth, viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
       SETTINGS.imageRendering, SETTINGS.bionicReadingEnabled, SETTINGS.guideReadingEnabled, selectedRenderMode);
 
@@ -4794,7 +4796,7 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
         return false;
       }
       buildSucceeded = section->createSectionFile(
-          readerFontId, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
+          readerFontId, 0, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
           SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
           SETTINGS.hyphenationEnabled, profile.embeddedStyle, SETTINGS.imageRendering, profile.bionicReadingEnabled,
           profile.guideReadingEnabled, []() {}, nullptr, &layoutAbortedForLowMemory, profile.renderMode);
@@ -4814,7 +4816,7 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
         return false;
       }
       buildSucceeded = section->createSectionFile(
-          readerFontId, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
+          readerFontId, 0, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
           SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
           SETTINGS.hyphenationEnabled, profile.embeddedStyle, SETTINGS.imageRendering, profile.bionicReadingEnabled,
           profile.guideReadingEnabled, []() {}, nullptr, &layoutAbortedForLowMemory, profile.renderMode);

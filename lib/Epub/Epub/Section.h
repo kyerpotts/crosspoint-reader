@@ -6,6 +6,7 @@
 
 #include "Epub.h"
 #include "EpubRenderMode.h"
+#include "SectionCacheIdentity.h"
 
 class Page;
 class GfxRenderer;
@@ -23,10 +24,11 @@ class Section {
   GfxRenderer& renderer;
   std::string filePath;
   HalFile file;
-  bool writeSectionFileHeader(int fontId, float lineCompression, bool extraParagraphSpacing, bool forceParagraphIndents,
-                              uint8_t paragraphAlignment, uint16_t viewportWidth, uint16_t viewportHeight,
-                              bool hyphenationEnabled, bool embeddedStyle, uint8_t imageRendering,
-                              bool bionicReadingEnabled, bool guideReadingEnabled, EpubRenderMode renderMode);
+  bool writeSectionFileHeader(int fontId, int secondaryFontId, float lineCompression, bool extraParagraphSpacing,
+                              bool forceParagraphIndents, uint8_t paragraphAlignment, uint16_t viewportWidth,
+                              uint16_t viewportHeight, bool hyphenationEnabled, bool embeddedStyle,
+                              uint8_t imageRendering, bool bionicReadingEnabled, bool guideReadingEnabled,
+                              EpubRenderMode renderMode);
   uint32_t onPageComplete(std::unique_ptr<Page> page);
 
  public:
@@ -36,16 +38,17 @@ class Section {
   explicit Section(const std::shared_ptr<Epub>& epub, int spineIndex, GfxRenderer& renderer,
                    const char* cacheSuffix = "");
   ~Section() = default;
-  bool loadSectionFile(int fontId, float lineCompression, bool extraParagraphSpacing, bool forceParagraphIndents,
-                       uint8_t paragraphAlignment, uint16_t viewportWidth, uint16_t viewportHeight,
-                       bool hyphenationEnabled, bool embeddedStyle, uint8_t imageRendering, bool bionicReadingEnabled,
-                       bool guideReadingEnabled, EpubRenderMode renderMode);
+  bool loadSectionFile(int fontId, int secondaryFontId, float lineCompression, bool extraParagraphSpacing,
+                       bool forceParagraphIndents, uint8_t paragraphAlignment, uint16_t viewportWidth,
+                       uint16_t viewportHeight, bool hyphenationEnabled, bool embeddedStyle, uint8_t imageRendering,
+                       bool bionicReadingEnabled, bool guideReadingEnabled, EpubRenderMode renderMode);
   bool clearCache() const;
-  bool createSectionFile(int fontId, float lineCompression, bool extraParagraphSpacing, bool forceParagraphIndents,
-                         uint8_t paragraphAlignment, uint16_t viewportWidth, uint16_t viewportHeight,
-                         bool hyphenationEnabled, bool embeddedStyle, uint8_t imageRendering, bool bionicReadingEnabled,
-                         bool guideReadingEnabled, const std::function<void()>& popupFn = nullptr,
-                         bool* imagesWereSuppressed = nullptr, bool* layoutAbortedForLowMemory = nullptr,
+  bool createSectionFile(int fontId, int secondaryFontId, float lineCompression, bool extraParagraphSpacing,
+                         bool forceParagraphIndents, uint8_t paragraphAlignment, uint16_t viewportWidth,
+                         uint16_t viewportHeight, bool hyphenationEnabled, bool embeddedStyle, uint8_t imageRendering,
+                         bool bionicReadingEnabled, bool guideReadingEnabled,
+                         const std::function<void()>& popupFn = nullptr, bool* imagesWereSuppressed = nullptr,
+                         bool* layoutAbortedForLowMemory = nullptr,
                          EpubRenderMode renderMode = EpubRenderMode::CrossInkDefault,
                          SectionBuildOptions buildOptions = {});
 

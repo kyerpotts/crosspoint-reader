@@ -1,0 +1,3 @@
+add_executable(SectionFontIdentityTest SectionFontIdentityTest.cpp)
+target_link_libraries(SectionFontIdentityTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(SectionFontIdentityTest)
