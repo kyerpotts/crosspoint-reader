@@ -5,6 +5,7 @@ from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile, ZipInfo
 
 
 OUTPUT = Path(__file__).resolve().parents[1] / "test" / "epubs" / "test_mixed_font_rendering.epub"
+LONG_OUTPUT = Path(__file__).resolve().parents[1] / "test" / "epubs" / "test_mixed_font_rendering_long.epub"
 TIMESTAMP = (2026, 7, 12, 0, 0, 0)
 
 
@@ -83,6 +84,49 @@ CHAPTERS = [PROSE, INLINE, PREFORMATTED, CSS_MONO, UNICODE_BIDI, TABLE]
 TITLES = ["Prose control", "Semantic inline", "Preformatted", "CSS monospace", "Unicode and BiDi", "Tables and stress"]
 
 
+def repeated_sections(title: str, content: str, count: int) -> str:
+    return "".join(f"<h2>{title} {index}</h2>{content}" for index in range(1, count + 1))
+
+
+LONG_PROSE = repeated_sections(
+    "Prose measurement section",
+    """
+<p>This is proportional prose with no code roles. Forward and backward page turns through this chapter isolate the secondary font's zero-demand path. The wording stays stable so repeated measurements exercise equivalent wrapping and cache behavior.</p>
+<p>Reliable measurements need ordinary punctuation, several sentence lengths, and enough text to fill the screen. The quick brown fox jumps over the lazy dog while the reader advances through a deterministic stream of paragraphs.</p>
+""",
+    20,
+)
+
+LONG_INLINE = repeated_sections(
+    "Inline mixed-font section",
+    """
+<p>Call <code>renderPage(cache, glyphs)</code>, press <kbd>Ctrl+C</kbd>, inspect <samp>cache hit: 97%</samp>, and compare <tt>fixed_width_name</tt> before returning to proportional prose.</p>
+<p>Long tokens such as <code>secondaryMonospaceGlyphDemandCollectorWithBoundedStorage</code> test wrapping. Styled tokens <code><b>const</b> value = <i>compute()</i>;</code> retain their weight, slant, baseline, and font role.</p>
+<p><span class="mono">font-family: monospace; --flag=value; /books/source.cpp</span> exercises the CSS generic family alongside semantic elements.</p>
+""",
+    20,
+)
+
+LONG_BLOCKS = repeated_sections(
+    "Code block section",
+    """
+<pre><code>template &lt;typename T&gt;
+T clamp_value(T value, T low, T high) {
+    return value &lt; low ? low : (value &gt; high ? high : value);
+}
+
+for (uint32_t i = 0; i &lt; glyphCount; ++i) {
+    cache.prewarm(codepoints[i]);
+}</code></pre>
+<p>Proportional text after each block verifies that the font role ends at the closing element.</p>
+""",
+    20,
+)
+
+LONG_CHAPTERS = [LONG_PROSE, LONG_INLINE, LONG_BLOCKS]
+LONG_TITLES = ["Long prose control", "Long inline mixed fonts", "Long preformatted blocks"]
+
+
 def xhtml(title: str, body: str) -> str:
     return f'''<?xml version="1.0" encoding="utf-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -92,19 +136,25 @@ def xhtml(title: str, body: str) -> str:
 '''
 
 
-def build() -> None:
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+def build_epub(
+    output: Path,
+    identifier: str,
+    title: str,
+    titles: list[str],
+    chapters: list[str],
+) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
     manifest = []
     spine = []
     nav = []
     files: list[tuple[ZipInfo, bytes]] = []
-    for index, (title, body) in enumerate(zip(TITLES, CHAPTERS), start=1):
+    for index, (chapter_title, body) in enumerate(zip(titles, chapters), start=1):
         name = f"chapter{index}.xhtml"
         item_id = f"ch{index}"
         manifest.append(f'<item id="{item_id}" href="{name}" media-type="application/xhtml+xml"/>')
         spine.append(f'<itemref idref="{item_id}"/>')
-        nav.append(f'<li><a href="{name}">{title}</a></li>')
-        files.append(entry(f"EPUB/{name}", xhtml(title, body)))
+        nav.append(f'<li><a href="{name}">{chapter_title}</a></li>')
+        files.append(entry(f"EPUB/{name}", xhtml(chapter_title, body)))
 
     container = '''<?xml version="1.0"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
@@ -114,8 +164,8 @@ def build() -> None:
     package = f'''<?xml version="1.0" encoding="utf-8"?>
 <package version="3.0" unique-identifier="book-id" xmlns="http://www.idpf.org/2007/opf">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-<dc:identifier id="book-id">crossink-mixed-font-rendering</dc:identifier>
-<dc:title>Mixed Font Rendering Tests</dc:title>
+<dc:identifier id="book-id">{identifier}</dc:identifier>
+<dc:title>{title}</dc:title>
 <dc:language>en</dc:language>
 </metadata>
 <manifest>{''.join(manifest)}<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/></manifest>
@@ -128,7 +178,7 @@ def build() -> None:
 </html>
 '''
 
-    with ZipFile(OUTPUT, "w") as archive:
+    with ZipFile(output, "w") as archive:
         for info, data in [
             entry("mimetype", "application/epub+zip", ZIP_STORED),
             entry("META-INF/container.xml", container),
@@ -137,7 +187,24 @@ def build() -> None:
             *files,
         ]:
             archive.writestr(info, data)
-    print(f"Generated {OUTPUT}")
+    print(f"Generated {output}")
+
+
+def build() -> None:
+    build_epub(
+        OUTPUT,
+        "crossink-mixed-font-rendering",
+        "Mixed Font Rendering Tests",
+        TITLES,
+        CHAPTERS,
+    )
+    build_epub(
+        LONG_OUTPUT,
+        "crossink-mixed-font-rendering-long",
+        "Long Mixed Font Rendering Tests",
+        LONG_TITLES,
+        LONG_CHAPTERS,
+    )
 
 
 if __name__ == "__main__":
