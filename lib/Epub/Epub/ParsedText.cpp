@@ -1584,6 +1584,12 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
     LOG_ERR("PTX", "OOM allocating line x-position scratch (%u words)", static_cast<unsigned>(lineWordCount));
     return false;
   }
+  const auto resolveLineX = [firstLineIndent, isRtl = blockStyle.isRtl](const int x) -> int16_t {
+    if (!isRtl && firstLineIndent < 0) {
+      return static_cast<int16_t>(x);
+    }
+    return static_cast<int16_t>(std::max(0, x));
+  };
   int activeJustifyExtra = justifyExtra;
 
   if (willReorder) {
@@ -1680,7 +1686,7 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
     }
 
     for (size_t wordIdx = 0; wordIdx < reorderedWidthsScratch.size(); ++wordIdx) {
-      if (!lineXPos.push_back(static_cast<int16_t>(xpos))) {
+      if (!lineXPos.push_back(resolveLineX(xpos))) {
         LOG_ERR("PTX", "OOM growing RTL line x-position scratch");
         return false;
       }
@@ -1722,7 +1728,7 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
 
       for (size_t wordIdx = 0; wordIdx < lineWordCount; ++wordIdx) {
         xpos -= lineWordWidths[wordIdx];
-        if (!lineXPos.push_back(static_cast<int16_t>(xpos))) {
+        if (!lineXPos.push_back(resolveLineX(xpos))) {
           LOG_ERR("PTX", "OOM growing line x-position scratch");
           return false;
         }
@@ -1744,7 +1750,7 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
       }
 
       for (size_t wordIdx = 0; wordIdx < lineWordCount; ++wordIdx) {
-        if (!lineXPos.push_back(static_cast<int16_t>(xpos))) {
+        if (!lineXPos.push_back(resolveLineX(xpos))) {
           LOG_ERR("PTX", "OOM growing line x-position scratch");
           return false;
         }
