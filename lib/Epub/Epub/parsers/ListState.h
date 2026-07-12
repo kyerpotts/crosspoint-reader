@@ -28,6 +28,7 @@ class ListState {
     }
   }
 
+  // Returned marker storage is replaced by the next item or consume operation.
   const char* enterItem() {
     if (itemDepth_ < std::numeric_limits<uint32_t>::max()) {
       ++itemDepth_;
@@ -42,7 +43,10 @@ class ListState {
         ++ordinal;
       }
     } else {
-      std::snprintf(pendingMarker_, sizeof(pendingMarker_), "%s", "\xE2\x80\xA2");
+      pendingMarker_[0] = '\xE2';
+      pendingMarker_[1] = '\x80';
+      pendingMarker_[2] = '\xA2';
+      pendingMarker_[3] = '\0';
     }
     hasPendingMarker_ = true;
     return pendingMarker_;
@@ -56,7 +60,6 @@ class ListState {
     --itemDepth_;
   }
 
-  // Marker pointers remain valid until the next marker or consume operation.
   [[nodiscard]] bool inItem() const { return itemDepth_ > 0; }
   [[nodiscard]] bool hasPendingMarker() const { return hasPendingMarker_; }
   [[nodiscard]] const char* pendingMarker() const { return pendingMarker_; }
