@@ -229,25 +229,27 @@ Binary layout:
 
 ## `section.bin`
 
-### Version 45
+### Version 46
 
 Each file in `sections/*.bin` stores one laid-out spine section. The header is
 also the cache-busting key: if any layout-affecting setting differs from the
 current reader settings, the section is discarded and rebuilt.
 
-Version 45 invalidates older section caches so `TextBlock` word data can be
-stored as one flat arena and chapter-opener TOC anchors resolve at the heading
-start. It includes:
+Version 46 invalidates older section caches so the header identifies both the
+primary reader font and the optional secondary monospace font. This prevents
+pages laid out with one monospace font from being reused after that selection
+changes. It includes:
 
-- cache-busting fields for font, line compression, extra paragraph spacing,
-  forced paragraph indents, paragraph alignment, viewport size, hyphenation,
-  embedded CSS, image rendering mode, Bionic Reading, Guide Dots, and EPUB
-  render mode
+- cache-busting fields for primary and secondary fonts, line compression,
+  extra paragraph spacing, forced paragraph indents, paragraph alignment,
+  viewport size, hyphenation, embedded CSS, image rendering mode, Bionic
+  Reading, Guide Dots, and EPUB render mode
 - page offset LUT
 - anchor-to-page map for fragment and footnote navigation
 - paragraph and list-item LUTs used by KOReader sync page refinement
 - optional per-word Bionic Reading split metadata
 - optional per-word Guide Dot x-offset metadata
+- optional per-word primary/secondary font role metadata
 - optional per-word text flags for CSS backgrounds and layout-inserted hyphens
 - reading-aid layout that stores Bionic Reading and Guide Dots as per-word metadata instead of temporary layout words
 - publisher CSS page-break handling and adjusted justification spacing baked into page layout
@@ -463,7 +465,8 @@ struct SectionBin {
         std::error(std::format("Unsupported version: {} (expected {})", version, EXPECTED_VERSION));
     }
 
-    s32 fontId;
+    s32 primaryFontId;
+    s32 secondaryFontId; // 0 when semantic monospace content uses the primary font
     float lineCompression;
     bool extraParagraphSpacing;
     bool forceParagraphIndents;

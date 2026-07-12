@@ -2,6 +2,8 @@
 
 ### Added
 
+- EPUBs can use a separately selected SD-card monospace font for code, keyboard input, samples, teletype text, preformatted blocks, and CSS monospace content.
+
 ### Changed
 
 ### Fixed
