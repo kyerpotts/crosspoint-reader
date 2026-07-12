@@ -33,6 +33,8 @@ constexpr size_t MIN_SIZE_FOR_POPUP = 10 * 1024;  // 10KB
 constexpr size_t PARSE_BUFFER_SIZE = 1024;
 // Initial slab for the parse arena. Covers both style stacks (~2 KB) with headroom for growth.
 constexpr size_t PARSE_ARENA_SLAB_SIZE = 4 * 1024;
+constexpr float DEFAULT_LIST_CONTAINER_INDENT_EM = 1.0f;
+constexpr float MAX_LIST_ITEM_VERTICAL_SPACING_EM = 0.25f;
 constexpr uint32_t MIN_FREE_HEAP_FOR_TABLE_BUFFERING = 64 * 1024;
 constexpr uint32_t MIN_MAX_ALLOC_FOR_TABLE_BUFFERING = 40 * 1024;
 constexpr size_t DEFAULT_BUFFERED_WORDS_BEFORE_LAYOUT = 350;
@@ -64,7 +66,7 @@ constexpr size_t MAX_ANCHORS_PER_CHAPTER = 1024;
 constexpr size_t MAX_PENDING_FOOTNOTES_BEFORE_LAYOUT = Page::MAX_FOOTNOTES_PER_PAGE * 3;
 
 static constexpr const char* const HEADER_TAGS[] = {"h1", "h2", "h3", "h4", "h5", "h6"};
-static constexpr const char* const BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote"};
+static constexpr const char* const BLOCK_TAGS[] = {"p", "li", "ul", "ol", "div", "br", "blockquote"};
 static constexpr const char* const BOLD_TAGS[] = {"b", "strong"};
 static constexpr const char* const ITALIC_TAGS[] = {"i", "em"};
 static constexpr const char* const UNDERLINE_TAGS[] = {"u", "ins"};
@@ -231,6 +233,8 @@ bool attributeContainsToken(const char* value, const char* token) {
 
   return false;
 }
+
+bool isListContainer(const char* name) { return strcmp(name, "ul") == 0 || strcmp(name, "ol") == 0; }
 
 bool isHeaderOrBlock(const char* name) {
   return matches(name, HEADER_TAGS, std::size(HEADER_TAGS)) || matches(name, BLOCK_TAGS, std::size(BLOCK_TAGS));
@@ -1401,6 +1405,18 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     self->skipCurrentElement();
     return;
   }
+  if (strcmp(name, "li") == 0) {
+    self->listState.enterItem();
+    self->pendingListMarkerDepth = self->depth;
+    self->hasPendingListMarkerIndent = false;
+  } else if (isListContainer(name)) {
+    if (self->listState.hasPendingMarker()) {
+      self->listState.consumePendingMarker();
+      self->pendingListMarkerDepth = -1;
+      self->hasPendingListMarkerIndent = false;
+    }
+    self->listState.enterList(strcmp(name, "ol") == 0);
+  }
 
   // Special handling for tables/cells: buffer simple tables for grid layout, with
   // a clean flat-paragraph fallback for anything more complex.
@@ -2075,7 +2091,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
   // Force paragraph indent to prevent unreadable walls of text.
   // This applies if the publisher set text-indent: 0, omitted it, or if it was stripped by disabling embedded styles.
-  if (self->forceParagraphIndents && strcmp(name, "p") == 0) {
+  if (self->forceParagraphIndents && !self->listState.inItem() && strcmp(name, "p") == 0) {
     static constexpr float forcedIndentEm = 1.0f;
     if (userAlignmentBlockStyle.alignment == CssTextAlign::Left ||
         userAlignmentBlockStyle.alignment == CssTextAlign::Justify ||
@@ -2169,31 +2185,63 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       self->startNewTextBlock(brStyle);
     } else {
       self->currentCssStyle = cssStyle;
+      auto blockStyle = userAlignmentBlockStyle;
+      if (isListContainer(name) && !cssStyle.hasMarginLeft() && !cssStyle.hasPaddingLeft()) {
+        blockStyle.paddingLeft =
+            static_cast<int16_t>(blockStyle.paddingLeft + emSize * DEFAULT_LIST_CONTAINER_INDENT_EM);
+      }
+      if (self->listState.inItem() && (strcmp(name, "li") == 0 || strcmp(name, "p") == 0)) {
+        const auto maxSpacing = static_cast<int16_t>(emSize * MAX_LIST_ITEM_VERTICAL_SPACING_EM);
+        blockStyle.marginTop = std::min(blockStyle.marginTop, maxSpacing);
+        blockStyle.marginBottom = std::min(blockStyle.marginBottom, maxSpacing);
+        blockStyle.paddingTop = std::min(blockStyle.paddingTop, maxSpacing);
+        blockStyle.paddingBottom = std::min(blockStyle.paddingBottom, maxSpacing);
+      }
+
+      const bool isPendingMarkerParagraph =
+          self->listState.hasPendingMarker() && strcmp(name, "p") == 0 &&
+          self->depth == self->pendingListMarkerDepth + 1;
+      if (self->listState.inItem() && strcmp(name, "p") == 0 && !cssStyle.hasTextIndent()) {
+        blockStyle.textIndent =
+            isPendingMarkerParagraph
+                ? static_cast<int16_t>(
+                      -(self->renderer.getTextAdvanceX(self->fontId, self->listState.pendingMarker(),
+                                                       EpdFontFamily::REGULAR) +
+                        self->renderer.getSpaceWidth(self->fontId, EpdFontFamily::REGULAR)))
+                : 0;
+        blockStyle.textIndentDefined = true;
+      }
+
       const auto accumulated = self->blockStyleBuf_[self->blockStyleCount_ - 1].getCombinedBlockStyle(
-          userAlignmentBlockStyle, BlockStyle::CombineAxis::Horizontal);
+          blockStyle, BlockStyle::CombineAxis::Horizontal);
       if (self->blockStyleCount_ < MAX_BLOCK_STYLE_DEPTH) {
         self->blockStyleBuf_[self->blockStyleCount_++] = accumulated;
       } else {
         LOG_ERR("EHP", "block style stack overflow (block)");
       }
-      // Common EPUB shape: <li><p>text</p></li>. Keep the first paragraph in the marker block
-      // so the auto bullet does not become its own orphaned paragraph.
-      const bool reuseListMarkerBlock = strcmp(name, "p") == 0 && self->pendingListMarkerDepth >= 0 &&
-                                        self->depth == self->pendingListMarkerDepth + 1 && self->currentTextBlock &&
-                                        self->currentTextBlock->size() == 1;
-      if (reuseListMarkerBlock) {
-        const auto mergedStyle = self->currentTextBlock->getBlockStyle().getCombinedBlockStyle(
-            accumulated.withoutBottom(), BlockStyle::CombineAxis::Vertical);
-        self->currentTextBlock->setBlockStyle(mergedStyle);
-      } else {
-        self->startNewTextBlock(accumulated.withoutBottom());
+      self->startNewTextBlock(accumulated.withoutBottom());
+      if (!self->currentTextBlock) {
+        return;
       }
       self->updateEffectiveInlineStyle();
 
-      if (strcmp(name, "li") == 0) {
-        self->currentTextBlock->addWord("\xe2\x80\xa2", EpdFontFamily::REGULAR, false, false,
-                                        self->honorsPublisherDecorations() && self->effectiveBackgroundBlack);
-        self->pendingListMarkerDepth = self->depth;
+      if (strcmp(name, "li") == 0 && self->listState.hasPendingMarker() && !cssStyle.hasTextIndent()) {
+        auto listItemStyle = self->currentTextBlock->getBlockStyle();
+        listItemStyle.textIndent = static_cast<int16_t>(
+            -(self->renderer.getTextAdvanceX(self->fontId, self->listState.pendingMarker(),
+                                             EpdFontFamily::REGULAR) +
+              self->renderer.getSpaceWidth(self->fontId, EpdFontFamily::REGULAR)));
+        listItemStyle.textIndentDefined = true;
+        self->currentTextBlock->setBlockStyle(listItemStyle);
+        self->hasPendingListMarkerIndent = true;
+      } else if (self->hasPendingListMarkerIndent &&
+                 (cssStyle.hasTextIndent() || strcmp(name, "p") != 0 ||
+                  self->depth != self->pendingListMarkerDepth + 1)) {
+        auto listItemStyle = self->currentTextBlock->getBlockStyle();
+        listItemStyle.textIndent = accumulated.textIndent;
+        listItemStyle.textIndentDefined = accumulated.textIndentDefined;
+        self->currentTextBlock->setBlockStyle(listItemStyle);
+        self->hasPendingListMarkerIndent = false;
       }
     }
   } else if (matches(name, UNDERLINE_TAGS, std::size(UNDERLINE_TAGS))) {
@@ -2464,6 +2512,9 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
 
   for (int i = 0; i < len; i++) {
     if (isWhitespace(s[i])) {
+      if (self->listState.hasPendingMarker() && self->partWordBufferIndex == 0) {
+        continue;
+      }
       // Currently looking at whitespace, if there's anything in the partWordBuffer, flush it
       if (self->partWordBufferIndex > 0) {
         self->flushPartWordBuffer();
@@ -2472,6 +2523,17 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       self->nextWordContinues = false;
       // Skip the whitespace char
       continue;
+    }
+
+    if (self->listState.hasPendingMarker()) {
+      if (!self->currentTextBlock) {
+        return;
+      }
+      self->currentTextBlock->addWord(self->listState.pendingMarker(), EpdFontFamily::REGULAR, false, false,
+                                      self->effectiveBackgroundBlack);
+      self->listState.consumePendingMarker();
+      self->hasPendingListMarkerIndent = false;
+      self->nextWordContinues = false;
     }
 
     // Detect U+00A0 (non-breaking space, UTF-8: 0xC2 0xA0) or
@@ -2773,8 +2835,14 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     self->nextWordContinues = false;
   }
 
-  if (strcmp(name, "li") == 0 && self->pendingListMarkerDepth == self->depth) {
-    self->pendingListMarkerDepth = -1;
+  if (strcmp(name, "li") == 0) {
+    self->listState.exitItem();
+    if (self->pendingListMarkerDepth == self->depth) {
+      self->pendingListMarkerDepth = -1;
+      self->hasPendingListMarkerIndent = false;
+    }
+  } else if (isListContainer(name)) {
+    self->listState.exitList();
   }
 
   // Leaving bold tag
