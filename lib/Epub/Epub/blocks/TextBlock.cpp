@@ -2,6 +2,7 @@
 
 #include <BidiUtils.h>
 #include <GfxRenderer.h>
+#include <GlyphDemandCollector.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <Serialization.h>
@@ -293,6 +294,30 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
       renderer.drawLine(startX, strikeY, startX + strikeWidth, strikeY, 3, foregroundBlack);
     }
   }
+}
+
+bool TextBlock::collectGlyphDemand(GlyphDemandCollector& demand) const {
+  if (!isValid) {
+    return false;
+  }
+
+  for (uint16_t i = 0; i < numWords; ++i) {
+    const char* word = wordText(i);
+    const auto style = wordStyle(i);
+    if (!demand.addUtf8(word, style)) {
+      return false;
+    }
+    if (bionicBoundary(i) > 0) {
+      const auto boldStyle = static_cast<EpdFontFamily::Style>(style | EpdFontFamily::BOLD);
+      if (!demand.addUtf8(word, boldStyle)) {
+        return false;
+      }
+    }
+    if (guideDotXOffset(i) > 0 && !demand.add(0x00B7, EpdFontFamily::REGULAR)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool TextBlock::serialize(HalFile& file) const {

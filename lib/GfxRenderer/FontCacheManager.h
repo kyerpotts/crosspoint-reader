@@ -6,6 +6,8 @@
 #include <map>
 #include <string>
 
+struct GlyphDemandEntry;
+
 class FontDecompressor;
 class SdCardFont;
 
@@ -17,6 +19,7 @@ class FontCacheManager {
 
   void clearCache();
   bool prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask = 0x0F);
+  bool prewarmDemand(int fontId, const GlyphDemandEntry* entries, uint16_t count);
   void logStats(const char* label = "render");
   void resetStats();
 

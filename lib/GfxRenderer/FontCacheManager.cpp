@@ -2,8 +2,10 @@
 
 #include <FontDecompressor.h>
 #include <Logging.h>
+#include <GlyphDemandCollector.h>
 #include <SdCardFont.h>
 
+#include <Utf8.h>
 #include <cstring>
 
 FontCacheManager::FontCacheManager(const std::map<int, EpdFontFamily>& fontMap,
@@ -45,6 +47,23 @@ bool FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t st
     }
   }
   return true;
+}
+
+bool FontCacheManager::prewarmDemand(const int fontId, const GlyphDemandEntry* entries, const uint16_t count) {
+  if (!entries || count == 0) {
+    return true;
+  }
+
+  scanText_.clear();
+  if (scanText_.capacity() < 2048) {
+    scanText_.reserve(2048);
+  }
+  uint8_t styleMask = 0;
+  for (uint16_t i = 0; i < count; ++i) {
+    utf8AppendCodepoint(entries[i].codepoint, scanText_);
+    styleMask = static_cast<uint8_t>(styleMask | entries[i].styleMask);
+  }
+  return prewarmCache(fontId, scanText_.c_str(), styleMask);
 }
 
 void FontCacheManager::logStats(const char* label) {

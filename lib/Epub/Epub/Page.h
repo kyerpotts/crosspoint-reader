@@ -11,6 +11,8 @@
 #include "blocks/ImageBlock.h"
 #include "blocks/TextBlock.h"
 
+class GlyphDemandCollector;
+
 enum PageElementTag : uint8_t {
   TAG_PageLine = 1,
   TAG_PageImage = 2,  // New tag
@@ -41,6 +43,7 @@ class PageLine final : public PageElement {
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) override;
   bool serialize(FsFile& file) override;
   PageElementTag getTag() const override { return TAG_PageLine; }
+  bool collectGlyphDemand(GlyphDemandCollector& demand) const;
   static std::unique_ptr<PageLine> deserialize(FsFile& file);
 };
 
@@ -117,6 +120,7 @@ class PageTableFragment final : public PageElement {
   PageElementTag getTag() const override { return TAG_PageTableFragment; }
   static std::unique_ptr<PageTableFragment> deserialize(FsFile& file);
   uint16_t getHeight() const;
+  bool collectGlyphDemand(GlyphDemandCollector& demand) const;
 };
 
 class Page {
@@ -163,6 +167,7 @@ class Page {
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) const;
   void renderText(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) const;
   void renderImages(GfxRenderer& renderer, int fontId, int xOffset, int yOffset) const;
+  bool collectGlyphDemand(GlyphDemandCollector& demand) const;
   bool serialize(FsFile& file) const;
   static std::unique_ptr<Page> deserialize(FsFile& file);
 

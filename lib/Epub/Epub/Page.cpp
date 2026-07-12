@@ -1,6 +1,7 @@
 #include "Page.h"
 
 #include <GfxRenderer.h>
+#include <GlyphDemandCollector.h>
 #include <Logging.h>
 #include <Serialization.h>
 
@@ -30,6 +31,10 @@ void renderFilteredPageElements(const std::vector<std::shared_ptr<PageElement>>&
 void PageLine::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
                       const bool foregroundBlack) {
   block->render(renderer, fontId, xPos + xOffset, yPos + yOffset, foregroundBlack);
+}
+
+bool PageLine::collectGlyphDemand(GlyphDemandCollector& demand) const {
+  return block && block->collectGlyphDemand(demand);
 }
 
 bool PageLine::serialize(FsFile& file) {
@@ -239,6 +244,19 @@ uint16_t PageTableFragment::getHeight() const {
   return total;
 }
 
+bool PageTableFragment::collectGlyphDemand(GlyphDemandCollector& demand) const {
+  for (const auto& row : rows) {
+    for (const auto& cell : row.cells) {
+      for (const auto& line : cell.lines) {
+        if (!line || !line->collectGlyphDemand(demand)) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
 void PageTableFragment::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
                                const bool foregroundBlack) {
   if (columnCount == 0 || rows.empty() || width < 2) {
@@ -362,6 +380,30 @@ void Page::renderText(GfxRenderer& renderer, const int fontId, const int xOffset
 void Page::renderImages(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset) const {
   renderFilteredPageElements(elements, renderer, fontId, xOffset, yOffset, true,
                              [](const PageElement& element) { return element.getTag() == TAG_PageImage; });
+}
+
+bool Page::collectGlyphDemand(GlyphDemandCollector& demand) const {
+  for (const auto& element : elements) {
+    if (!element) {
+      return false;
+    }
+    switch (element->getTag()) {
+      case TAG_PageLine:
+        if (!static_cast<const PageLine&>(*element).collectGlyphDemand(demand)) {
+          return false;
+        }
+        break;
+      case TAG_PageTableFragment:
+        if (!static_cast<const PageTableFragment&>(*element).collectGlyphDemand(demand)) {
+          return false;
+        }
+        break;
+      case TAG_PageImage:
+      case TAG_PageHorizontalRule:
+        break;
+    }
+  }
+  return true;
 }
 
 bool Page::serialize(FsFile& file) const {

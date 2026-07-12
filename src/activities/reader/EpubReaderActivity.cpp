@@ -4,6 +4,8 @@
 #include <Epub/Page.h>
 #include <Epub/blocks/TextBlock.h>
 #include <FontCacheManager.h>
+#include <FontDecompressor.h>
+#include <GlyphDemandCollector.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -11,6 +13,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
+#include <ScratchWorkspace.h>
 
 #include <algorithm>
 #include <array>
@@ -4240,13 +4243,27 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
                                         const int orientedMarginLeft) {
   const auto t0 = millis();
 
-  // Font prewarm: scan pass accumulates text, then prewarm, then real render
   auto* fcm = renderer.getFontCacheManager();
   fcm->resetStats();
   const auto heapBefore = MemoryBudget::snapshot();
-  auto scope = fcm->createPrewarmScope();
-  page->renderText(renderer, fontId, orientedMarginLeft, orientedMarginTop);  // scan pass
-  scope.endScanAndPrewarm();
+  bool demandPrewarmed = false;
+  {
+    constexpr size_t demandBytes = sizeof(GlyphDemandEntry) * FontDecompressor::MAX_PAGE_GLYPHS;
+    auto demandScratch = ScratchWorkspace::borrow(demandBytes, "reader glyph demand");
+    if (demandScratch) {
+      auto* entries = reinterpret_cast<GlyphDemandEntry*>(demandScratch.data());
+      GlyphDemandCollector demand(entries, FontDecompressor::MAX_PAGE_GLYPHS);
+      if (page->collectGlyphDemand(demand) && !demand.overflowed()) {
+        fcm->clearCache();
+        demandPrewarmed = fcm->prewarmDemand(fontId, demand.entries(), demand.size());
+      }
+    }
+  }
+  if (!demandPrewarmed) {
+    auto scope = fcm->createPrewarmScope();
+    page->renderText(renderer, fontId, orientedMarginLeft, orientedMarginTop);
+    demandPrewarmed = scope.endScanAndPrewarm();
+  }
   const auto heapAfter = MemoryBudget::snapshot();
   fcm->logStats("prewarm");
   const auto tPrewarm = millis();
