@@ -17,20 +17,20 @@ static_assert(PageTableFragment::MAX_SERIALIZED_ROWS == MAX_TABLE_ROWS_PER_FRAGM
 
 template <typename Predicate>
 void renderFilteredPageElements(const std::vector<std::shared_ptr<PageElement>>& elements, GfxRenderer& renderer,
-                                const int fontId, const int xOffset, const int yOffset, const bool foregroundBlack,
-                                Predicate&& predicate) {
+                                const FontRenderContext& fonts, const int xOffset, const int yOffset,
+                                const bool foregroundBlack, Predicate&& predicate) {
   for (const auto& element : elements) {
     if (predicate(*element)) {
-      element->render(renderer, fontId, xOffset, yOffset, foregroundBlack);
+      element->render(renderer, fonts, xOffset, yOffset, foregroundBlack);
     }
   }
 }
 
 }  // namespace
 
-void PageLine::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
+void PageLine::render(GfxRenderer& renderer, const FontRenderContext& fonts, const int xOffset, const int yOffset,
                       const bool foregroundBlack) {
-  block->render(renderer, fontId, xPos + xOffset, yPos + yOffset, foregroundBlack);
+  block->render(renderer, fonts, xPos + xOffset, yPos + yOffset, foregroundBlack);
 }
 
 bool PageLine::collectGlyphDemand(GlyphDemandCollector& demand) const {
@@ -69,10 +69,11 @@ std::unique_ptr<PageLine> PageLine::deserialize(FsFile& file) {
   return std::unique_ptr<PageLine>(pageLine);
 }
 
-void PageImage::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
+void PageImage::render(GfxRenderer& renderer, const FontRenderContext& fonts, const int xOffset, const int yOffset,
                        const bool foregroundBlack) {
+  (void)fonts;
   (void)foregroundBlack;
-  // Images don't use fontId or text rendering
+  // Images don't use fonts or text rendering.
   imageBlock->render(renderer, xPos + xOffset, yPos + yOffset);
 }
 
@@ -108,9 +109,9 @@ std::unique_ptr<PageImage> PageImage::deserialize(FsFile& file) {
   return std::unique_ptr<PageImage>(pageImage);
 }
 
-void PageHorizontalRule::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
-                                const bool foregroundBlack) {
-  (void)fontId;
+void PageHorizontalRule::render(GfxRenderer& renderer, const FontRenderContext& fonts, const int xOffset,
+                                const int yOffset, const bool foregroundBlack) {
+  (void)fonts;
   if (width == 0 || thickness == 0) {
     return;
   }
@@ -257,8 +258,8 @@ bool PageTableFragment::collectGlyphDemand(GlyphDemandCollector& demand) const {
   return true;
 }
 
-void PageTableFragment::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
-                               const bool foregroundBlack) {
+void PageTableFragment::render(GfxRenderer& renderer, const FontRenderContext& fonts, const int xOffset,
+                               const int yOffset, const bool foregroundBlack) {
   if (columnCount == 0 || rows.empty() || width < 2) {
     return;
   }
@@ -289,8 +290,8 @@ void PageTableFragment::render(GfxRenderer& renderer, const int fontId, const in
       const int cellTextY = drawY + currentY + cellPadding;
 
       for (size_t lineIndex = 0; lineIndex < cell.lines.size(); lineIndex++) {
-        cell.lines[lineIndex]->render(renderer, fontId, cellTextX, cellTextY + static_cast<int>(lineIndex) * lineHeight,
-                                      foregroundBlack);
+        cell.lines[lineIndex]->render(renderer, fonts, cellTextX,
+                                      cellTextY + static_cast<int>(lineIndex) * lineHeight, foregroundBlack);
       }
     }
 
@@ -365,20 +366,20 @@ std::unique_ptr<PageTableFragment> PageTableFragment::deserialize(FsFile& file) 
   return std::unique_ptr<PageTableFragment>(fragment);
 }
 
-void Page::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
+void Page::render(GfxRenderer& renderer, const FontRenderContext& fonts, const int xOffset, const int yOffset,
                   const bool foregroundBlack) const {
-  renderFilteredPageElements(elements, renderer, fontId, xOffset, yOffset, foregroundBlack,
+  renderFilteredPageElements(elements, renderer, fonts, xOffset, yOffset, foregroundBlack,
                              [](const PageElement&) { return true; });
 }
 
-void Page::renderText(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
+void Page::renderText(GfxRenderer& renderer, const FontRenderContext& fonts, const int xOffset, const int yOffset,
                       const bool foregroundBlack) const {
-  renderFilteredPageElements(elements, renderer, fontId, xOffset, yOffset, foregroundBlack,
+  renderFilteredPageElements(elements, renderer, fonts, xOffset, yOffset, foregroundBlack,
                              [](const PageElement& element) { return element.getTag() != TAG_PageImage; });
 }
 
 void Page::renderImages(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset) const {
-  renderFilteredPageElements(elements, renderer, fontId, xOffset, yOffset, true,
+  renderFilteredPageElements(elements, renderer, FontRenderContext{fontId, 0}, xOffset, yOffset, true,
                              [](const PageElement& element) { return element.getTag() == TAG_PageImage; });
 }
 

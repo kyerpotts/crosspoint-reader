@@ -71,7 +71,12 @@ class TextBlock final : public Block {
   bool wordEndsWithInsertedHyphen(const uint16_t i) const { return (wordFlags(i) & WORD_FLAG_INSERTED_HYPHEN) != 0; }
   FontRole wordFontRole(const uint16_t i) const { return fontRoleFromWordFlags(wordFlags(i)); }
 
-  void render(const GfxRenderer& renderer, int fontId, int x, int y, bool foregroundBlack = true) const;
+  void render(const GfxRenderer& renderer, const FontRenderContext& fonts, int x, int y,
+              bool foregroundBlack = true) const;
+  void render(const GfxRenderer& renderer, const int fontId, const int x, const int y,
+              const bool foregroundBlack = true) const {
+    render(renderer, FontRenderContext{fontId, 0}, x, y, foregroundBlack);
+  }
   bool collectGlyphDemand(GlyphDemandCollector& demand) const;
   BlockType getType() override { return TEXT_BLOCK; }
   bool serialize(HalFile& file) const;

@@ -349,19 +349,25 @@ size_t guideDotGapSlots(const std::string& rightWord) {
   return 1 + (isClosingPunctuationForJustify(firstCodepoint(rightWord)) ? 0 : 1);
 }
 
-int naturalGapBeforeToken(const GfxRenderer& renderer, const int fontId, const std::string& leftWord,
-                          const std::string& rightWord, const EpdFontFamily::Style leftStyle, const bool continues,
-                          const bool noSpaceBefore, const bool guideDotBefore) {
+int naturalGapBeforeToken(const GfxRenderer& renderer, const int leftFontId, const int rightFontId,
+                          const std::string& leftWord, const std::string& rightWord,
+                          const EpdFontFamily::Style leftStyle, const bool continues, const bool noSpaceBefore,
+                          const bool guideDotBefore) {
   if (guideDotBefore) {
-    return guideDotNaturalGap(renderer, fontId, leftWord, rightWord, leftStyle);
+    return guideDotNaturalGap(renderer, leftFontId, leftWord, rightWord, leftStyle);
   }
   if (noSpaceBefore) {
     return 0;
   }
   if (continues) {
-    return renderer.getKerning(fontId, lastCodepoint(leftWord), firstCodepoint(rightWord), leftStyle);
+    return leftFontId == rightFontId
+               ? renderer.getKerning(leftFontId, lastCodepoint(leftWord), firstCodepoint(rightWord), leftStyle)
+               : 0;
   }
-  return renderer.getSpaceAdvance(fontId, lastCodepoint(leftWord), firstCodepoint(rightWord), leftStyle);
+  if (leftFontId != rightFontId) {
+    return renderer.getSpaceWidth(rightFontId, EpdFontFamily::REGULAR);
+  }
+  return renderer.getSpaceAdvance(leftFontId, lastCodepoint(leftWord), firstCodepoint(rightWord), leftStyle);
 }
 
 size_t gapSlotsBeforeToken(const std::string& rightWord, const bool continues, const bool noSpaceBefore,
@@ -602,9 +608,11 @@ int ParsedText::resolveFirstLineIndent(const bool isFirstLine, const GfxRenderer
 }
 
 // Consumes data to minimize memory usage
-bool ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
+bool ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const FontRenderContext& fonts,
+                                       const uint16_t viewportWidth,
                                        const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
                                        const bool includeLastLine) {
+  const int fontId = fonts.primaryId;
   if (words.empty()) {
     return true;
   }
@@ -650,10 +658,10 @@ bool ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
       renderer.ensureSdCardFontReady(fontId, GUIDE_DOT_UTF8, 0x01);
     }
   }
-
   const int pageWidth = viewportWidth;
+
   ArenaVector<uint16_t> wordWidths(layoutArena);
-  if (!calculateWordWidths(wordWidths, renderer, fontId)) {
+  if (!calculateWordWidths(wordWidths, renderer, fonts)) {
     LOG_ERR("PTX", "OOM allocating word width scratch (%u words)", static_cast<unsigned>(words.size()));
     return false;
   }
@@ -663,24 +671,22 @@ bool ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
   ArenaVector<size_t> lineBreakIndices(layoutArena);
   bool breaksOk = false;
   if (hyphenationEnabled) {
-    // Use greedy layout that can split words mid-loop when a hyphenated prefix fits.
-    breaksOk = computeHyphenatedLineBreaks(renderer, fontId, pageWidth, wordWidths, wordContinues, wordNoSpaceBefore,
-                                           lineBreakIndices);
+    breaksOk = computeHyphenatedLineBreaks(renderer, fonts, pageWidth, wordWidths, wordContinues,
+                                           wordNoSpaceBefore, lineBreakIndices);
     if (breaksOk) {
-      breaksOk = calculateGapMetrics(naturalGaps, gapSlots, renderer, fontId);
+      breaksOk = calculateGapMetrics(naturalGaps, gapSlots, renderer, fonts);
     }
   } else {
-    breaksOk = computeLineBreaks(layoutArena, renderer, fontId, pageWidth, wordWidths, wordContinues, wordNoSpaceBefore,
-                                 naturalGaps, gapSlots, lineBreakIndices);
+    breaksOk = computeLineBreaks(layoutArena, renderer, fonts, pageWidth, wordWidths, wordContinues,
+                                 wordNoSpaceBefore, naturalGaps, gapSlots, lineBreakIndices);
   }
   if (!breaksOk || lineBreakIndices.empty()) {
     return false;
   }
   const size_t lineCount = includeLastLine ? lineBreakIndices.size() : lineBreakIndices.size() - 1;
-
   for (size_t i = 0; i < lineCount; ++i) {
     if (!extractLine(layoutArena, i, pageWidth, wordWidths, wordContinues, wordNoSpaceBefore, naturalGaps, gapSlots,
-                     lineBreakIndices, processLine, renderer, fontId)) {
+                     lineBreakIndices, processLine, renderer, fonts)) {
       return false;
     }
   }
@@ -701,19 +707,22 @@ bool ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
 }
 
 bool ParsedText::layoutAndExtractLinesPreservingSource(
-    const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
+    const GfxRenderer& renderer, const FontRenderContext& fonts, const uint16_t viewportWidth,
     const std::function<void(std::shared_ptr<TextBlock>)>& processLine) const {
   ParsedText layoutProbe(*this);
-  return layoutProbe.layoutAndExtractLines(renderer, fontId, viewportWidth, processLine);
+  return layoutProbe.layoutAndExtractLines(renderer, fonts, viewportWidth, processLine);
 }
 
-bool ParsedText::calculateWordWidths(ArenaVector<uint16_t>& wordWidths, const GfxRenderer& renderer, const int fontId) {
+bool ParsedText::calculateWordWidths(ArenaVector<uint16_t>& wordWidths, const GfxRenderer& renderer,
+                                     const FontRenderContext& fonts) {
   if (!wordWidths.reserve(words.size())) {
     return false;
   }
 
   for (size_t i = 0; i < words.size(); ++i) {
-    if (!wordWidths.push_back(measureTokenWidth(renderer, fontId, words[i], wordStyles[i], wordBionicBoundary[i]))) {
+    const int wordFontId = fonts.resolve(wordRoles[i]);
+    if (!wordWidths.push_back(
+            measureTokenWidth(renderer, wordFontId, words[i], wordStyles[i], wordBionicBoundary[i]))) {
       return false;
     }
   }
@@ -722,7 +731,7 @@ bool ParsedText::calculateWordWidths(ArenaVector<uint16_t>& wordWidths, const Gf
 }
 
 bool ParsedText::calculateGapMetrics(ArenaVector<int16_t>& naturalGaps, ArenaVector<uint8_t>& gapSlots,
-                                     const GfxRenderer& renderer, const int fontId) {
+                                     const GfxRenderer& renderer, const FontRenderContext& fonts) {
   if (!naturalGaps.resize(words.size()) || !gapSlots.resize(words.size())) {
     LOG_ERR("PTX", "OOM allocating gap metric scratch (%u words)", static_cast<unsigned>(words.size()));
     return false;
@@ -743,19 +752,22 @@ bool ParsedText::calculateGapMetrics(ArenaVector<int16_t>& naturalGaps, ArenaVec
     const bool continues = wordContinues[i];
     const bool noSpaceBefore = wordNoSpaceBefore[i];
     const bool guideDotBefore = wordGuideDotBefore[i];
-    naturalGaps[i] = static_cast<int16_t>(naturalGapBeforeToken(
-        renderer, fontId, words[i - 1], words[i], wordStyles[i - 1], continues, noSpaceBefore, guideDotBefore));
+    const int leftFontId = fonts.resolve(wordRoles[i - 1]);
+    const int rightFontId = fonts.resolve(wordRoles[i]);
+    naturalGaps[i] = static_cast<int16_t>(
+        naturalGapBeforeToken(renderer, leftFontId, rightFontId, words[i - 1], words[i], wordStyles[i - 1], continues,
+                              noSpaceBefore, guideDotBefore));
     gapSlots[i] = static_cast<uint8_t>(
         std::min<size_t>(UINT8_MAX, gapSlotsBeforeToken(words[i], continues, noSpaceBefore, guideDotBefore)));
   }
   return true;
 }
 
-bool ParsedText::computeLineBreaks(Arena& scratchArena, const GfxRenderer& renderer, const int fontId,
-                                   const int pageWidth, ArenaVector<uint16_t>& wordWidths,
-                                   std::vector<bool>& continuesVec, std::vector<bool>& noSpaceBeforeVec,
-                                   ArenaVector<int16_t>& naturalGaps, ArenaVector<uint8_t>& gapSlots,
-                                   ArenaVector<size_t>& lineBreakIndices) {
+bool ParsedText::computeLineBreaks(Arena& scratchArena, const GfxRenderer& renderer,
+                                   const FontRenderContext& fonts, const int pageWidth,
+                                   ArenaVector<uint16_t>& wordWidths, std::vector<bool>& continuesVec,
+                                   std::vector<bool>& noSpaceBeforeVec, ArenaVector<int16_t>& naturalGaps,
+                                   ArenaVector<uint8_t>& gapSlots, ArenaVector<size_t>& lineBreakIndices) {
   if (words.empty()) {
     return false;
   }
@@ -764,20 +776,21 @@ bool ParsedText::computeLineBreaks(Arena& scratchArena, const GfxRenderer& rende
     return index + 1 < totalWordCount && continuesVec[index + 1];
   };
 
-  const int firstLineIndent = resolveFirstLineIndent(true, renderer, fontId);
+  const int firstLineIndent = resolveFirstLineIndent(true, renderer, fonts.primaryId);
 
   // Ensure any word that would overflow even as the first entry on a line is split using fallback hyphenation.
   for (size_t i = 0; i < wordWidths.size(); ++i) {
     // First word needs to fit in reduced width if there's an indent
     const int effectiveWidth = i == 0 ? pageWidth - firstLineIndent : pageWidth;
     while (wordWidths[i] > effectiveWidth) {
-      if (!hyphenateWordAtIndex(i, effectiveWidth, renderer, fontId, wordWidths, /*allowFallbackBreaks=*/true)) {
+      const int wordFontId = fonts.resolve(wordRoles[i]);
+      if (!hyphenateWordAtIndex(i, effectiveWidth, renderer, wordFontId, wordWidths, /*allowFallbackBreaks=*/true)) {
         break;
       }
     }
   }
 
-  if (!calculateGapMetrics(naturalGaps, gapSlots, renderer, fontId)) {
+  if (!calculateGapMetrics(naturalGaps, gapSlots, renderer, fonts)) {
     return false;
   }
 
@@ -876,11 +889,11 @@ bool ParsedText::computeLineBreaks(Arena& scratchArena, const GfxRenderer& rende
 }
 
 // Builds break indices while opportunistically splitting the word that would overflow the current line.
-bool ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& renderer, const int fontId, const int pageWidth,
-                                             ArenaVector<uint16_t>& wordWidths, std::vector<bool>& continuesVec,
-                                             std::vector<bool>& noSpaceBeforeVec,
+bool ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& renderer, const FontRenderContext& fonts,
+                                             const int pageWidth, ArenaVector<uint16_t>& wordWidths,
+                                             std::vector<bool>& continuesVec, std::vector<bool>& noSpaceBeforeVec,
                                              ArenaVector<size_t>& lineBreakIndices) {
-  const int firstLineIndent = resolveFirstLineIndent(true, renderer, fontId);
+  const int firstLineIndent = resolveFirstLineIndent(true, renderer, fonts.primaryId);
 
   size_t currentIndex = 0;
   bool isFirstLine = true;
@@ -898,9 +911,12 @@ bool ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& renderer, const 
       const bool isFirstWord = currentIndex == lineStart;
       int spacing = 0;
       if (!isFirstWord) {
-        spacing = naturalGapBeforeToken(renderer, fontId, words[currentIndex - 1], words[currentIndex],
-                                        wordStyles[currentIndex - 1], continuesVec[currentIndex],
-                                        noSpaceBeforeVec[currentIndex], wordGuideDotBefore[currentIndex]);
+        const int leftFontId = fonts.resolve(wordRoles[currentIndex - 1]);
+        const int rightFontId = fonts.resolve(wordRoles[currentIndex]);
+        spacing = naturalGapBeforeToken(renderer, leftFontId, rightFontId, words[currentIndex - 1],
+                                        words[currentIndex], wordStyles[currentIndex - 1],
+                                        continuesVec[currentIndex], noSpaceBeforeVec[currentIndex],
+                                        wordGuideDotBefore[currentIndex]);
       }
       const int candidateWidth = spacing + wordWidths[currentIndex];
 
@@ -915,8 +931,9 @@ bool ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& renderer, const 
       const int availableWidth = effectivePageWidth - lineWidth - spacing;
       const bool allowFallbackBreaks = isFirstWord;  // Only for first word on line
 
+      const int wordFontId = fonts.resolve(wordRoles[currentIndex]);
       if (availableWidth > 0 &&
-          hyphenateWordAtIndex(currentIndex, availableWidth, renderer, fontId, wordWidths, allowFallbackBreaks)) {
+          hyphenateWordAtIndex(currentIndex, availableWidth, renderer, wordFontId, wordWidths, allowFallbackBreaks)) {
         // Prefix now fits; append it to this line and move to next line
         lineWidth += spacing + wordWidths[currentIndex];
         ++currentIndex;
@@ -1130,12 +1147,12 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
                              const std::vector<bool>& noSpaceBeforeVec, const ArenaVector<int16_t>& naturalGaps,
                              const ArenaVector<uint8_t>& gapSlots, const ArenaVector<size_t>& lineBreakIndices,
                              const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
-                             const GfxRenderer& renderer, const int fontId) {
+                             const GfxRenderer& renderer, const FontRenderContext& fonts) {
   const size_t lineBreak = lineBreakIndices[breakIndex];
   const size_t lastBreakAt = breakIndex > 0 ? lineBreakIndices[breakIndex - 1] : 0;
   size_t lineWordCount = lineBreak - lastBreakAt;
 
-  const int firstLineIndent = resolveFirstLineIndent(breakIndex == 0, renderer, fontId);
+  const int firstLineIndent = resolveFirstLineIndent(breakIndex == 0, renderer, fonts.primaryId);
 
   auto& lineWords = lineWordsScratch;
   auto& lineWordStyles = lineStylesScratch;
@@ -1280,10 +1297,12 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
         reorderedGapCount +=
             gapSlotsBeforeToken(reorderedWordsScratch[wordIdx], reorderedContinuesScratch[wordIdx],
                                 reorderedNoSpaceBeforeScratch[wordIdx], reorderedGuideDotBeforeScratch[wordIdx]);
-        reorderedNaturalGaps +=
-            naturalGapBeforeToken(renderer, fontId, reorderedWordsScratch[wordIdx - 1], reorderedWordsScratch[wordIdx],
-                                  reorderedStylesScratch[wordIdx - 1], reorderedContinuesScratch[wordIdx],
-                                  reorderedNoSpaceBeforeScratch[wordIdx], reorderedGuideDotBeforeScratch[wordIdx]);
+        const int leftFontId = fonts.resolve(reorderedRolesScratch[wordIdx - 1]);
+        const int rightFontId = fonts.resolve(reorderedRolesScratch[wordIdx]);
+        reorderedNaturalGaps += naturalGapBeforeToken(
+            renderer, leftFontId, rightFontId, reorderedWordsScratch[wordIdx - 1], reorderedWordsScratch[wordIdx],
+            reorderedStylesScratch[wordIdx - 1], reorderedContinuesScratch[wordIdx],
+            reorderedNoSpaceBeforeScratch[wordIdx], reorderedGuideDotBeforeScratch[wordIdx]);
       }
     }
 
@@ -1324,9 +1343,11 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
         const bool nextContinues = reorderedContinuesScratch[wordIdx + 1];
         const bool nextNoSpace = reorderedNoSpaceBeforeScratch[wordIdx + 1];
         const bool nextGuideDot = reorderedGuideDotBeforeScratch[wordIdx + 1];
-        int gap =
-            naturalGapBeforeToken(renderer, fontId, reorderedWordsScratch[wordIdx], reorderedWordsScratch[wordIdx + 1],
-                                  reorderedStylesScratch[wordIdx], nextContinues, nextNoSpace, nextGuideDot);
+        const int leftFontId = fonts.resolve(reorderedRolesScratch[wordIdx]);
+        const int rightFontId = fonts.resolve(reorderedRolesScratch[wordIdx + 1]);
+        int gap = naturalGapBeforeToken(renderer, leftFontId, rightFontId, reorderedWordsScratch[wordIdx],
+                                        reorderedWordsScratch[wordIdx + 1], reorderedStylesScratch[wordIdx],
+                                        nextContinues, nextNoSpace, nextGuideDot);
         gap += reorderedJustifyExtra * static_cast<int>(gapSlotsBeforeToken(reorderedWordsScratch[wordIdx + 1],
                                                                             nextContinues, nextNoSpace, nextGuideDot));
         xpos += gap;
@@ -1437,9 +1458,10 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
 
   for (size_t i = 0; i < lineWordCount; i++) {
     const uint8_t boundary = lineBionicBoundary[i];
+    const int wordFontId = fonts.resolve(lineWordRoles[i]);
     const uint16_t suffixX =
         boundary > 0 ? static_cast<uint16_t>(std::max(
-                           0, measureBionicSuffixX(renderer, fontId, lineWords[i], lineWordStyles[i], boundary)))
+                           0, measureBionicSuffixX(renderer, wordFontId, lineWords[i], lineWordStyles[i], boundary)))
                      : 0;
 
     outWords.push_back(std::move(lineWords[i]));
@@ -1452,11 +1474,12 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
     if (lineHasGuideDot) {
       outGuideDotXOffset.push_back(0);
       if (i > 0 && lineGuideDotBefore[i]) {
+        const int dotFontId = fonts.resolve(lineWordRoles[i - 1]);
         const int secondGap =
-            guideDotSecondGap(renderer, fontId, outWords.back()) +
+            guideDotSecondGap(renderer, dotFontId, outWords.back()) +
             (isClosingPunctuationForJustify(firstCodepoint(outWords.back())) ? 0 : activeJustifyExtra);
         const int dotX = static_cast<int>(lineXPos[i]) - secondGap -
-                         renderer.getTextAdvanceX(fontId, GUIDE_DOT_UTF8, EpdFontFamily::REGULAR);
+                         renderer.getTextAdvanceX(dotFontId, GUIDE_DOT_UTF8, EpdFontFamily::REGULAR);
         const int dotDelta = dotX - static_cast<int>(outXPos[outXPos.size() - 2]);
         outGuideDotXOffset[outGuideDotXOffset.size() - 2] = static_cast<uint16_t>(dotDelta > 0 ? dotDelta : 0);
       }

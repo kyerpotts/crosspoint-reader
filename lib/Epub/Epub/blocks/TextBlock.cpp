@@ -193,7 +193,7 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
   }
 }
 
-void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int x, const int y,
+void TextBlock::render(const GfxRenderer& renderer, const FontRenderContext& fonts, const int x, const int y,
                        const bool foregroundBlack) const {
   if (!isValid) {
     LOG_ERR("TXB", "Render skipped: invalid block");
@@ -201,8 +201,9 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
   }
 
   const bool scanning = renderer.isFontCacheScanning();
-  const int ascender = renderer.getFontAscenderSize(fontId);
   for (uint16_t i = 0; i < numWords; i++) {
+    const int fontId = fonts.resolve(wordFontRole(i));
+    const int ascender = renderer.getFontAscenderSize(fontId);
     const char* word = wordText(i);
     const uint16_t wordLen = wordTextLen(i);
     const int wordX = wordXpos(i) + x;

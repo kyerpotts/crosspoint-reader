@@ -53,12 +53,12 @@ class ParsedText {
   void reserveTokenCapacity(size_t additionalTokens);
   int resolveFirstLineIndent(bool isFirstLine, const GfxRenderer& renderer, int fontId) const;
   bool calculateGapMetrics(ArenaVector<int16_t>& naturalGaps, ArenaVector<uint8_t>& gapSlots,
-                           const GfxRenderer& renderer, int fontId);
-  bool computeLineBreaks(Arena& scratchArena, const GfxRenderer& renderer, int fontId, int pageWidth,
+                           const GfxRenderer& renderer, const FontRenderContext& fonts);
+  bool computeLineBreaks(Arena& scratchArena, const GfxRenderer& renderer, const FontRenderContext& fonts, int pageWidth,
                          ArenaVector<uint16_t>& wordWidths, std::vector<bool>& continuesVec,
                          std::vector<bool>& noSpaceBeforeVec, ArenaVector<int16_t>& naturalGaps,
                          ArenaVector<uint8_t>& gapSlots, ArenaVector<size_t>& lineBreakIndices);
-  bool computeHyphenatedLineBreaks(const GfxRenderer& renderer, int fontId, int pageWidth,
+  bool computeHyphenatedLineBreaks(const GfxRenderer& renderer, const FontRenderContext& fonts, int pageWidth,
                                    ArenaVector<uint16_t>& wordWidths, std::vector<bool>& continuesVec,
                                    std::vector<bool>& noSpaceBeforeVec, ArenaVector<size_t>& lineBreakIndices);
   bool hyphenateWordAtIndex(size_t wordIndex, int availableWidth, const GfxRenderer& renderer, int fontId,
@@ -70,8 +70,9 @@ class ParsedText {
                    const ArenaVector<int16_t>& naturalGaps, const ArenaVector<uint8_t>& gapSlots,
                    const ArenaVector<size_t>& lineBreakIndices,
                    const std::function<void(std::shared_ptr<TextBlock>)>& processLine, const GfxRenderer& renderer,
-                   int fontId);
-  bool calculateWordWidths(ArenaVector<uint16_t>& wordWidths, const GfxRenderer& renderer, int fontId);
+                   const FontRenderContext& fonts);
+  bool calculateWordWidths(ArenaVector<uint16_t>& wordWidths, const GfxRenderer& renderer,
+                           const FontRenderContext& fonts);
 
  public:
   explicit ParsedText(const bool extraParagraphSpacing, const bool forceParagraphIndents = false,
@@ -92,9 +93,20 @@ class ParsedText {
   BlockStyle& getBlockStyle() { return blockStyle; }
   size_t size() const { return words.size(); }
   bool isEmpty() const { return words.empty(); }
-  bool layoutAndExtractLines(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
+  bool layoutAndExtractLines(const GfxRenderer& renderer, const FontRenderContext& fonts, uint16_t viewportWidth,
                              const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
                              bool includeLastLine = true);
-  bool layoutAndExtractLinesPreservingSource(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
-                                             const std::function<void(std::shared_ptr<TextBlock>)>& processLine) const;
+  bool layoutAndExtractLines(const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
+                             const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
+                             const bool includeLastLine = true) {
+    return layoutAndExtractLines(renderer, FontRenderContext{fontId, 0}, viewportWidth, processLine, includeLastLine);
+  }
+  bool layoutAndExtractLinesPreservingSource(
+      const GfxRenderer& renderer, const FontRenderContext& fonts, uint16_t viewportWidth,
+      const std::function<void(std::shared_ptr<TextBlock>)>& processLine) const;
+  bool layoutAndExtractLinesPreservingSource(
+      const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
+      const std::function<void(std::shared_ptr<TextBlock>)>& processLine) const {
+    return layoutAndExtractLinesPreservingSource(renderer, FontRenderContext{fontId, 0}, viewportWidth, processLine);
+  }
 };
