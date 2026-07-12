@@ -246,11 +246,15 @@ Binary layout:
 
 ## `section.bin`
 
-### Version 57
+### Version 58
 
 Each file in `sections/*.bin` stores one laid-out spine section. The header is
 also the cache-busting key: if any layout-affecting setting differs from the
 current reader settings, the section is discarded and rebuilt.
+
+Version 58 is binary-identical to version 57. The version was bumped because
+list markers, nested-list indentation, and wrapped list-item hanging indents
+changed. Full and suspended partial section caches rebuild together.
 
 Version 57 is binary-identical to version 56. The version was bumped because
 word-gap suppression now applies only to tokens glued together in the source.

@@ -8,6 +8,7 @@ class ListState {
  public:
   static constexpr uint8_t MAX_DEPTH = 4;
   static constexpr uint8_t MAX_MARKER_LENGTH = 8;
+  static constexpr uint8_t MAX_MARKER_TOKEN_LENGTH = MAX_MARKER_LENGTH + 1;
 
   void enterList(const bool ordered) {
     if (overflowDepth_ > 0 || depth_ == MAX_DEPTH) {
@@ -48,6 +49,7 @@ class ListState {
       pendingMarker_[2] = '\xA2';
       pendingMarker_[3] = '\0';
     }
+    std::snprintf(pendingMarkerToken_, sizeof(pendingMarkerToken_), "%s ", pendingMarker_);
     hasPendingMarker_ = true;
     return pendingMarker_;
   }
@@ -63,9 +65,11 @@ class ListState {
   [[nodiscard]] bool inItem() const { return itemDepth_ > 0; }
   [[nodiscard]] bool hasPendingMarker() const { return hasPendingMarker_; }
   [[nodiscard]] const char* pendingMarker() const { return pendingMarker_; }
+  [[nodiscard]] const char* pendingMarkerToken() const { return pendingMarkerToken_; }
 
   void consumePendingMarker() {
     pendingMarker_[0] = '\0';
+    pendingMarkerToken_[0] = '\0';
     hasPendingMarker_ = false;
   }
 
@@ -80,5 +84,6 @@ class ListState {
   uint32_t overflowDepth_ = 0;
   uint32_t itemDepth_ = 0;
   char pendingMarker_[MAX_MARKER_LENGTH] = {};
+  char pendingMarkerToken_[MAX_MARKER_TOKEN_LENGTH] = {};
   bool hasPendingMarker_ = false;
 };
