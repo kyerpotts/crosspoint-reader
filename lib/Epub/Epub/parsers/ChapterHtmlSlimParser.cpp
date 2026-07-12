@@ -542,7 +542,7 @@ void ChapterHtmlSlimParser::flushLongTextRunIfNeeded(const bool force) {
   const uint16_t effectiveWidth =
       (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
   if (!currentTextBlock->layoutAndExtractLines(
-          renderer, fontId, effectiveWidth,
+          renderer, FontRenderContext{fontId, secondaryFontId}, effectiveWidth,
           [this](const std::shared_ptr<TextBlock>& textBlock) { addLineToPage(textBlock); }, false)) {
     LOG_ERR("EHP", "Failed to lay out long text run");
     lowMemoryAbort = true;
@@ -844,7 +844,7 @@ void ChapterHtmlSlimParser::emitBufferedTableAsFragments(BufferedTable& table) {
 
       if (sourceCell.text) {
         if (!sourceCell.text->layoutAndExtractLinesPreservingSource(
-                renderer, fontId, innerColumnWidth,
+                renderer, FontRenderContext{fontId, secondaryFontId}, innerColumnWidth,
                 [&destCell](const std::shared_ptr<TextBlock>& textBlock) { destCell.lines.push_back(textBlock); })) {
           LOG_DBG("EHP", "Table layout fallback: cell text layout failed");
           return false;
@@ -3092,7 +3092,7 @@ void ChapterHtmlSlimParser::makePages() {
       (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
 
   if (!currentTextBlock->layoutAndExtractLines(
-          renderer, fontId, effectiveWidth,
+          renderer, FontRenderContext{fontId, secondaryFontId}, effectiveWidth,
           [this](const std::shared_ptr<TextBlock>& textBlock) { addLineToPage(textBlock); })) {
     LOG_ERR("EHP", "Failed to lay out text block");
     lowMemoryAbort = true;

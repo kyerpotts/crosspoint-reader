@@ -10,10 +10,12 @@
 #include "components/themes/BaseTheme.h"
 #include "util/ButtonNavigator.h"
 
+enum class FontSelectionTarget : uint8_t { Primary, Secondary };
+
 class FontSelectionActivity final : public Activity {
  public:
   explicit FontSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                 const SdCardFontRegistry* registry);
+                                 const SdCardFontRegistry* registry, FontSelectionTarget target);
 
   void onEnter() override;
   void onExit() override;
@@ -32,12 +34,14 @@ class FontSelectionActivity final : public Activity {
   };
 
   const SdCardFontRegistry* registry_;
+  FontSelectionTarget target_;
   ButtonNavigator buttonNavigator_;
   std::vector<FontEntry> fonts_;
   int selectedIndex_ = 0;
   int previewFontIndex_ = 0;
   uint8_t originalFontFamily_ = 0;
-  char originalSdFontFamilyName_[32] = {};
+  char originalSdFontFamilyName_[64] = {};
+  char originalSecondarySdFontFamilyName_[64] = {};
 
   ThemeMetrics metrics_ = {};
   int afterHeader = 0;

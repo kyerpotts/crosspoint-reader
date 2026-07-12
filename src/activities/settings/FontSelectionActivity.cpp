@@ -85,8 +85,8 @@ int findCurrentFontIndex(const SdCardFontRegistry* registry, const char* sdFontF
 }  // namespace
 
 FontSelectionActivity::FontSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                             const SdCardFontRegistry* registry)
-    : Activity("FontSelect", renderer, mappedInput), registry_(registry) {}
+                                             const SdCardFontRegistry* registry, const FontSelectionTarget target)
+    : Activity("FontSelect", renderer, mappedInput), registry_(registry), target_(target) {}
 
 void FontSelectionActivity::onEnter() {
   Activity::onEnter();
@@ -101,21 +101,39 @@ void FontSelectionActivity::onEnter() {
   originalFontFamily_ = SETTINGS.fontFamily;
   strncpy(originalSdFontFamilyName_, SETTINGS.sdFontFamilyName, sizeof(originalSdFontFamilyName_) - 1);
   originalSdFontFamilyName_[sizeof(originalSdFontFamilyName_) - 1] = '\0';
+  strncpy(originalSecondarySdFontFamilyName_, SETTINGS.secondarySdFontFamilyName.value,
+          sizeof(originalSecondarySdFontFamilyName_) - 1);
+  originalSecondarySdFontFamilyName_[sizeof(originalSecondarySdFontFamilyName_) - 1] = '\0';
 
   fonts_.clear();
-  fonts_.reserve(CrossPointSettings::BUILTIN_FONT_COUNT + (registry_ ? registry_->getFamilyCount() : 0));
+  const size_t baseEntryCount =
+      target_ == FontSelectionTarget::Primary ? CrossPointSettings::BUILTIN_FONT_COUNT : 1;
+  fonts_.reserve(baseEntryCount + (registry_ ? registry_->getFamilyCount() : 0));
 
-  fonts_.push_back({I18N.get(StrId::STR_LEXEND_DECA), true, 0});
-  fonts_.push_back({I18N.get(StrId::STR_BITTER), true, 1});
+  if (target_ == FontSelectionTarget::Primary) {
+    fonts_.push_back({I18N.get(StrId::STR_LEXEND_DECA), true, 0});
+    fonts_.push_back({I18N.get(StrId::STR_BITTER), true, 1});
+  } else {
+    fonts_.push_back({I18N.get(StrId::STR_DISABLED), true, 0});
+  }
 
+  selectedIndex_ = 0;
   if (registry_) {
     const auto& families = registry_->getFamilies();
     for (int i = 0; i < static_cast<int>(families.size()); i++) {
-      fonts_.push_back({families[i].name, false, static_cast<uint8_t>(CrossPointSettings::BUILTIN_FONT_COUNT + i)});
+      const uint8_t settingIndex = static_cast<uint8_t>(baseEntryCount + i);
+      fonts_.push_back({families[i].name, false, settingIndex});
+      const char* selectedFamily = target_ == FontSelectionTarget::Primary
+                                       ? SETTINGS.sdFontFamilyName
+                                       : SETTINGS.secondarySdFontFamilyName.value;
+      if (families[i].name == selectedFamily) {
+        selectedIndex_ = settingIndex;
+      }
     }
   }
-
-  selectedIndex_ = findCurrentFontIndex(registry_, SETTINGS.sdFontFamilyName, SETTINGS.fontFamily);
+  if (target_ == FontSelectionTarget::Primary && SETTINGS.sdFontFamilyName[0] == '\0') {
+    selectedIndex_ = SETTINGS.fontFamily < CrossPointSettings::BUILTIN_FONT_COUNT ? SETTINGS.fontFamily : 0;
+  }
   previewFontIndex_ = selectedIndex_;
 
   requestUpdate();
@@ -129,6 +147,7 @@ void FontSelectionActivity::loop() {
     SETTINGS.fontFamily = originalFontFamily_;
     strncpy(SETTINGS.sdFontFamilyName, originalSdFontFamilyName_, sizeof(SETTINGS.sdFontFamilyName) - 1);
     SETTINGS.sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName) - 1] = '\0';
+    SETTINGS.secondarySdFontFamilyName.assign(originalSecondarySdFontFamilyName_);
     sdFontSystem.ensureLoaded(renderer);
     finish();
     return;
@@ -140,7 +159,18 @@ void FontSelectionActivity::loop() {
     } else {
       previewFontIndex_ = selectedIndex_;
       const auto& font = fonts_[selectedIndex_];
-      if (font.isBuiltin) {
+      if (target_ == FontSelectionTarget::Secondary) {
+        if (font.isBuiltin) {
+          SETTINGS.secondarySdFontFamilyName.clear();
+        } else if (registry_) {
+          const int sdIdx = font.settingIndex - 1;
+          const auto& families = registry_->getFamilies();
+          if (sdIdx >= 0 && sdIdx < static_cast<int>(families.size())) {
+            SETTINGS.secondarySdFontFamilyName.assign(families[sdIdx].name.c_str());
+          }
+        }
+        sdFontSystem.ensureLoaded(renderer);
+      } else if (font.isBuiltin) {
         SETTINGS.fontFamily = font.settingIndex;
         SETTINGS.sdFontFamilyName[0] = '\0';
       } else if (registry_) {
@@ -184,19 +214,32 @@ void FontSelectionActivity::loop() {
 
 void FontSelectionActivity::handleSelection() {
   const auto& font = fonts_[selectedIndex_];
-  const uint8_t targetPointSize = currentFontPointSize(registry_);
-  if (font.settingIndex < CrossPointSettings::BUILTIN_FONT_COUNT) {
-    SETTINGS.fontFamily = font.settingIndex;
-    SETTINGS.sdFontFamilyName[0] = '\0';
-    SETTINGS.fontSize = closestBuiltinStoredSize(targetPointSize);
-  } else if (registry_) {
-    const int sdIdx = font.settingIndex - CrossPointSettings::BUILTIN_FONT_COUNT;
-    const auto& families = registry_->getFamilies();
-    if (sdIdx < static_cast<int>(families.size())) {
-      const std::vector<uint8_t> sizes = families[sdIdx].availableSizes();
-      SETTINGS.fontSize = closestSizeIndex(sizes, targetPointSize);
-      strncpy(SETTINGS.sdFontFamilyName, families[sdIdx].name.c_str(), sizeof(SETTINGS.sdFontFamilyName) - 1);
-      SETTINGS.sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName) - 1] = '\0';
+  if (target_ == FontSelectionTarget::Secondary) {
+    if (font.isBuiltin) {
+      SETTINGS.secondarySdFontFamilyName.clear();
+    } else if (registry_) {
+      const int sdIdx = font.settingIndex - 1;
+      const auto& families = registry_->getFamilies();
+      if (sdIdx >= 0 && sdIdx < static_cast<int>(families.size())) {
+        SETTINGS.secondarySdFontFamilyName.assign(families[sdIdx].name.c_str());
+      }
+    }
+    sdFontSystem.ensureLoaded(renderer);
+  } else {
+    const uint8_t targetPointSize = currentFontPointSize(registry_);
+    if (font.settingIndex < CrossPointSettings::BUILTIN_FONT_COUNT) {
+      SETTINGS.fontFamily = font.settingIndex;
+      SETTINGS.sdFontFamilyName[0] = '\0';
+      SETTINGS.fontSize = closestBuiltinStoredSize(targetPointSize);
+    } else if (registry_) {
+      const int sdIdx = font.settingIndex - CrossPointSettings::BUILTIN_FONT_COUNT;
+      const auto& families = registry_->getFamilies();
+      if (sdIdx < static_cast<int>(families.size())) {
+        const std::vector<uint8_t> sizes = families[sdIdx].availableSizes();
+        SETTINGS.fontSize = closestSizeIndex(sizes, targetPointSize);
+        strncpy(SETTINGS.sdFontFamilyName, families[sdIdx].name.c_str(), sizeof(SETTINGS.sdFontFamilyName) - 1);
+        SETTINGS.sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName) - 1] = '\0';
+      }
     }
   }
   mappedInput.suppressNextConfirmRelease();
@@ -250,13 +293,15 @@ void FontSelectionActivity::render(RenderLock&&) {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
 
-  GUI.drawHeader(renderer, Rect{0, metrics_.topPadding, pageWidth, metrics_.headerHeight}, tr(STR_FONT_FAMILY));
+  GUI.drawHeader(renderer, Rect{0, metrics_.topPadding, pageWidth, metrics_.headerHeight},
+                 target_ == FontSelectionTarget::Primary ? tr(STR_FONT_FAMILY) : tr(STR_MONOSPACE_FONT));
 
   const int previewTop = afterHeader;
   const int listTop = previewTop + previewHeight + metrics_.verticalSpacing;
   const int listHeight = usableHeight - previewHeight - metrics_.verticalSpacing;
 
-  const int previewFontId = SETTINGS.getReaderFontId();
+  const int previewFontId =
+      target_ == FontSelectionTarget::Primary ? SETTINGS.getReaderFontId() : SETTINGS.getSecondaryReaderFontId();
   const char* previewFontName = (previewFontIndex_ >= 0 && previewFontIndex_ < static_cast<int>(fonts_.size()))
                                     ? fonts_[previewFontIndex_].name.c_str()
                                     : nullptr;
@@ -264,7 +309,17 @@ void FontSelectionActivity::render(RenderLock&&) {
 
   renderer.drawLine(0, listTop - metrics_.verticalSpacing / 2, pageWidth, listTop - metrics_.verticalSpacing / 2);
 
-  const int currentFontIndex = findCurrentFontIndex(registry_, originalSdFontFamilyName_, originalFontFamily_);
+  const int currentFontIndex =
+      target_ == FontSelectionTarget::Primary
+          ? findCurrentFontIndex(registry_, originalSdFontFamilyName_, originalFontFamily_)
+          : [&]() {
+              if (originalSecondarySdFontFamilyName_[0] == '\0' || !registry_) return 0;
+              const auto& families = registry_->getFamilies();
+              for (int i = 0; i < static_cast<int>(families.size()); ++i) {
+                if (families[i].name == originalSecondarySdFontFamilyName_) return i + 1;
+              }
+              return 0;
+            }();
   GUI.drawList(
       renderer, Rect{0, listTop, pageWidth, listHeight}, static_cast<int>(fonts_.size()), selectedIndex_,
       [this](int index) { return fonts_[index].name; }, nullptr, nullptr,

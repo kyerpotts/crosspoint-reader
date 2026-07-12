@@ -254,25 +254,30 @@ bool ClipSelectionActivity::switchToPage(const int pageIdx) {
     bool renderWithFallback = false;
     {
       auto scope = fcm->createPrewarmScope();
-      page->renderText(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+      page->renderText(renderer, FontRenderContext{renderFontId, SETTINGS.getSecondaryReaderFontId()}, marginLeft,
+                       marginTop, ReaderUtils::readerForegroundBlack());
       if (!scope.endScanAndPrewarm() && renderer.isSdCardFont(renderFontId)) {
         useFallbackFont("page prewarm");
         renderWithFallback = true;
       } else {
         renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-        page->render(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+        page->render(renderer, FontRenderContext{renderFontId, SETTINGS.getSecondaryReaderFontId()}, marginLeft,
+                     marginTop, ReaderUtils::readerForegroundBlack());
       }
     }
     if (renderWithFallback) {
       auto fallbackScope = fcm->createPrewarmScope();
-      page->renderText(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+      page->renderText(renderer, FontRenderContext{renderFontId, SETTINGS.getSecondaryReaderFontId()}, marginLeft,
+                       marginTop, ReaderUtils::readerForegroundBlack());
       fallbackScope.endScanAndPrewarm();
       renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-      page->render(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+      page->render(renderer, FontRenderContext{renderFontId, SETTINGS.getSecondaryReaderFontId()}, marginLeft,
+                   marginTop, ReaderUtils::readerForegroundBlack());
     }
   } else {
     renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-    page->render(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+    page->render(renderer, FontRenderContext{renderFontId, SETTINGS.getSecondaryReaderFontId()}, marginLeft, marginTop,
+                 ReaderUtils::readerForegroundBlack());
   }
 
   storeCurrentBuffer();

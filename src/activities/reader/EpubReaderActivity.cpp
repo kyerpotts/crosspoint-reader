@@ -64,7 +64,8 @@ constexpr uint16_t MIN_AUTO_PAGE_TURN_INTERVAL_S = 5;
 constexpr uint16_t MAX_AUTO_PAGE_TURN_INTERVAL_S = 120;
 constexpr int MAX_PAGE_LOAD_RETRIES = 3;
 constexpr uint8_t LEGACY_READER_SETTINGS_FILE_VERSION = 1;
-constexpr uint8_t READER_SETTINGS_FILE_VERSION = 2;
+constexpr uint8_t PREVIOUS_READER_SETTINGS_FILE_VERSION = 2;
+constexpr uint8_t READER_SETTINGS_FILE_VERSION = 3;
 constexpr uint8_t READER_SETTINGS_FLAG_CUSTOM = 1 << 0;
 constexpr uint8_t READER_SETTINGS_FLAG_AUTO_PAGE_TURN = 1 << 1;
 constexpr uint8_t READER_SETTINGS_FLAG_RENDER_MODE = 1 << 2;
@@ -596,7 +597,8 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
       renderer.beginStripTarget(scratch.get(), y, rows);
       renderer.clearScreen(0x00);
       if (needsTextGrayscale) {
-        page.render(renderer, fontId, marginLeft, marginTop, foregroundBlack);
+        page.render(renderer, FontRenderContext{fontId, SETTINGS.getSecondaryReaderFontId()}, marginLeft, marginTop,
+                    foregroundBlack);
       } else {
         page.renderImages(renderer, fontId, marginLeft, marginTop);
       }
@@ -865,6 +867,9 @@ void captureReaderSettings(EpubReaderActivity::ReaderSettingsSnapshot& out) {
   out.epubRenderMode = normalizeRenderModeRaw(SETTINGS.epubRenderMode);
   std::strncpy(out.sdFontFamilyName, SETTINGS.sdFontFamilyName, sizeof(out.sdFontFamilyName) - 1);
   out.sdFontFamilyName[sizeof(out.sdFontFamilyName) - 1] = '\0';
+  std::strncpy(out.secondarySdFontFamilyName, SETTINGS.secondarySdFontFamilyName.value,
+               sizeof(out.secondarySdFontFamilyName) - 1);
+  out.secondarySdFontFamilyName[sizeof(out.secondarySdFontFamilyName) - 1] = '\0';
 }
 
 uint8_t clampedStoredReaderFontSize(const EpubReaderActivity::ReaderSettingsSnapshot& in) {
@@ -879,6 +884,7 @@ void applyReaderSettings(const EpubReaderActivity::ReaderSettingsSnapshot& in) {
   SETTINGS.fontFamily = in.fontFamily < CrossPointSettings::BUILTIN_FONT_COUNT ? in.fontFamily : SETTINGS.fontFamily;
   std::strncpy(SETTINGS.sdFontFamilyName, in.sdFontFamilyName, sizeof(SETTINGS.sdFontFamilyName) - 1);
   SETTINGS.sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName) - 1] = '\0';
+  SETTINGS.secondarySdFontFamilyName.assign(in.secondarySdFontFamilyName);
   SETTINGS.fontSize = clampedStoredReaderFontSize(in);
   SETTINGS.lineHeightPercent = CrossPointSettings::clampedLineHeightPercent(in.lineHeightPercent);
   SETTINGS.orientation = in.orientation < CrossPointSettings::ORIENTATION_COUNT ? in.orientation : SETTINGS.orientation;
@@ -909,7 +915,8 @@ struct BookReaderSettingsData {
   EpubReaderActivity::ReaderSettingsSnapshot readerSettings;
 };
 
-bool readReaderSettingsSnapshot(FsFile& file, EpubReaderActivity::ReaderSettingsSnapshot& out) {
+bool readReaderSettingsSnapshot(FsFile& file, EpubReaderActivity::ReaderSettingsSnapshot& out,
+                                const bool includesSecondaryFont) {
   if (!(readU8(file, out.fontFamily) && readU8(file, out.fontSize) && readU8(file, out.lineHeightPercent) &&
         readU8(file, out.orientation) && readU8(file, out.screenMargin) && readU8(file, out.publisherPageNumbers) &&
         readU8(file, out.paragraphAlignment) && readU8(file, out.embeddedStyle) &&
@@ -923,7 +930,12 @@ bool readReaderSettingsSnapshot(FsFile& file, EpubReaderActivity::ReaderSettings
     return false;
   }
   out.epubRenderMode = normalizeRenderModeRaw(out.epubRenderMode);
-  return readExact(file, out.sdFontFamilyName, sizeof(out.sdFontFamilyName));
+  if (!readExact(file, out.sdFontFamilyName, sizeof(out.sdFontFamilyName))) return false;
+  if (!includesSecondaryFont) {
+    out.secondarySdFontFamilyName[0] = '\0';
+    return true;
+  }
+  return readExact(file, out.secondarySdFontFamilyName, sizeof(out.secondarySdFontFamilyName));
 }
 
 bool writeReaderSettingsSnapshot(FsFile& file, const EpubReaderActivity::ReaderSettingsSnapshot& in) {
@@ -935,7 +947,8 @@ bool writeReaderSettingsSnapshot(FsFile& file, const EpubReaderActivity::ReaderS
          writeU8(file, in.extraParagraphSpacing) && writeU8(file, in.forceParagraphIndents) &&
          writeU8(file, in.bionicReadingEnabled) && writeU8(file, in.guideReadingEnabled) &&
          writeU8(file, normalizeRenderModeRaw(in.epubRenderMode)) &&
-         writeExact(file, in.sdFontFamilyName, sizeof(in.sdFontFamilyName));
+         writeExact(file, in.sdFontFamilyName, sizeof(in.sdFontFamilyName)) &&
+         writeExact(file, in.secondarySdFontFamilyName, sizeof(in.secondarySdFontFamilyName));
 }
 
 BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) {
@@ -964,7 +977,7 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
     return data;
   }
 
-  if (version != READER_SETTINGS_FILE_VERSION) {
+  if (version != READER_SETTINGS_FILE_VERSION && version != PREVIOUS_READER_SETTINGS_FILE_VERSION) {
     file.close();
     LOG_DBG("ERS", "Reader settings version mismatch, using defaults");
     return data;
@@ -979,7 +992,7 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
     ok = readU8(file, renderMode);
   }
   if (ok) {
-    ok = readReaderSettingsSnapshot(file, snapshot);
+    ok = readReaderSettingsSnapshot(file, snapshot, version >= READER_SETTINGS_FILE_VERSION);
   }
   file.close();
   if (!ok) {
@@ -3794,7 +3807,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
                 fontId, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
         return false;
       }
-      if (!section->loadSectionFile(fontId, 0, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
+      if (!section->loadSectionFile(fontId, SETTINGS.getSecondaryReaderFontId(), SETTINGS.getReaderLineCompression(),
+                                    SETTINGS.extraParagraphSpacing,
                                     SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth,
                                     viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
                                     SETTINGS.imageRendering, SETTINGS.bionicReadingEnabled,
@@ -3843,7 +3857,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         // ghost-cleanup path -- otherwise the "INDEXING" text ghosts under the rendered page.
         pagesUntilFullRefresh = 1;
         const bool buildSucceeded = section->createSectionFile(
-            fontId, 0, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
+            fontId, SETTINGS.getSecondaryReaderFontId(), SETTINGS.getReaderLineCompression(),
+            SETTINGS.extraParagraphSpacing,
             SETTINGS.forceParagraphIndents,
             SETTINGS.paragraphAlignment, viewportWidth, viewportHeight, SETTINGS.hyphenationEnabled,
             profile.embeddedStyle, SETTINGS.imageRendering, profile.bionicReadingEnabled, profile.guideReadingEnabled,
@@ -4262,7 +4277,8 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   }
   if (!demandPrewarmed) {
     auto scope = fcm->createPrewarmScope();
-    page->renderText(renderer, fontId, orientedMarginLeft, orientedMarginTop);
+    page->renderText(renderer, FontRenderContext{fontId, SETTINGS.getSecondaryReaderFontId()}, orientedMarginLeft,
+                     orientedMarginTop);
     demandPrewarmed = scope.endScanAndPrewarm();
   }
   const auto heapAfter = MemoryBudget::snapshot();
@@ -4290,13 +4306,15 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   };
 
   const auto composePageBuffer = [&]() {
-    page->render(renderer, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack);
+    page->render(renderer, FontRenderContext{fontId, SETTINGS.getSecondaryReaderFontId()}, orientedMarginLeft,
+                 orientedMarginTop, foregroundBlack);
     finalizeBufferComposition();
   };
 
   const auto composeGrayscaleBuffer = [&]() {
     if (needsTextGrayscale) {
-      page->render(renderer, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack);
+      page->render(renderer, FontRenderContext{fontId, SETTINGS.getSecondaryReaderFontId()}, orientedMarginLeft,
+                   orientedMarginTop, foregroundBlack);
     } else {
       page->renderImages(renderer, fontId, orientedMarginLeft, orientedMarginTop);
     }
@@ -4759,7 +4777,8 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
     return false;
   }
   bool loadedSection = section->loadSectionFile(
-      readerFontId, 0, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
+      readerFontId, SETTINGS.getSecondaryReaderFontId(), SETTINGS.getReaderLineCompression(),
+      SETTINGS.extraParagraphSpacing,
       SETTINGS.forceParagraphIndents,
       SETTINGS.paragraphAlignment, viewportWidth, viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
       SETTINGS.imageRendering, SETTINGS.bionicReadingEnabled, SETTINGS.guideReadingEnabled, selectedRenderMode);
@@ -4796,7 +4815,8 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
         return false;
       }
       buildSucceeded = section->createSectionFile(
-          readerFontId, 0, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
+          readerFontId, SETTINGS.getSecondaryReaderFontId(), SETTINGS.getReaderLineCompression(),
+          SETTINGS.extraParagraphSpacing,
           SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
           SETTINGS.hyphenationEnabled, profile.embeddedStyle, SETTINGS.imageRendering, profile.bionicReadingEnabled,
           profile.guideReadingEnabled, []() {}, nullptr, &layoutAbortedForLowMemory, profile.renderMode);
@@ -4816,7 +4836,8 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
         return false;
       }
       buildSucceeded = section->createSectionFile(
-          readerFontId, 0, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
+          readerFontId, SETTINGS.getSecondaryReaderFontId(), SETTINGS.getReaderLineCompression(),
+          SETTINGS.extraParagraphSpacing,
           SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
           SETTINGS.hyphenationEnabled, profile.embeddedStyle, SETTINGS.imageRendering, profile.bionicReadingEnabled,
           profile.guideReadingEnabled, []() {}, nullptr, &layoutAbortedForLowMemory, profile.renderMode);
@@ -4854,7 +4875,8 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   }
 
   renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-  page->render(renderer, renderFontId, layout.marginLeft, layout.marginTop, ReaderUtils::readerForegroundBlack());
+  page->render(renderer, FontRenderContext{renderFontId, SETTINGS.getSecondaryReaderFontId()}, layout.marginLeft,
+               layout.marginTop, ReaderUtils::readerForegroundBlack());
   drawPublisherPageMarkers(renderer, *page, layout.marginTop, renderer.getScreenHeight() - layout.marginBottom,
                            ReaderUtils::readerForegroundBlack());
   // No displayBuffer call; caller (SleepActivity) handles that after compositing the overlay.

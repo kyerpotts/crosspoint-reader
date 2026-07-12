@@ -44,6 +44,7 @@ class EpubReaderActivity final : public Activity {
     uint8_t guideReadingEnabled = 0;
     uint8_t epubRenderMode = 0;
     char sdFontFamilyName[64] = "";
+    char secondarySdFontFamilyName[64] = "";
   };
 
  private:

@@ -720,6 +720,11 @@ int CrossPointSettings::getReaderFontId() const {
   return getBuiltInReaderFontId();
 }
 
+int CrossPointSettings::getSecondaryReaderFontId() const {
+  if (secondarySdFontFamilyName.empty() || !secondarySdFontIdResolver) return 0;
+  return secondarySdFontIdResolver(sdFontResolverCtx, secondarySdFontFamilyName.value, fontSize);
+}
+
 int CrossPointSettings::getBuiltInReaderFontId() const {
   const FONT_SIZE effectiveSize = getEffectiveReaderFontSize();
 

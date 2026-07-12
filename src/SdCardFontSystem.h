@@ -57,6 +57,8 @@ class SdCardFontSystem {
   }
 
  private:
+  void ensureSlotLoaded(GfxRenderer& renderer, SdFontSlot slot, char* wantedFamily,
+                        uint8_t targetPointSize, uint8_t sizeStep, bool registryWasDirty);
   SdCardFontRegistry registry_;
   SdCardFontManager manager_;
   std::atomic<bool> registryDirty_{false};

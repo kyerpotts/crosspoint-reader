@@ -444,7 +444,8 @@ bool Section::createSectionFile(const int fontId, const int secondaryFontId, con
   }
 
   ChapterHtmlSlimParser visitor(
-      epub, parsePath, renderer, fontId, lineCompression, extraParagraphSpacing, forceParagraphIndents,
+      epub, parsePath, renderer, fontId, secondaryFontId, lineCompression, extraParagraphSpacing,
+      forceParagraphIndents,
       paragraphAlignment, viewportWidth, viewportHeight, hyphenationEnabled, effectiveBionicReadingEnabled,
       effectiveGuideReadingEnabled,
       [this, &lut, &lutCapacity, &lutCount, &pageCompletionFailed, layoutAbortedForLowMemory](

@@ -722,6 +722,7 @@ inline std::vector<SettingInfo> buildGroupedReaderSettingsList(const std::vector
 
   readerSettings.push_back(SettingInfo::SectionHeader(StrId::STR_READER_FONT_OPTIONS));
   addReaderSetting(StrId::STR_FONT_FAMILY);
+  readerSettings.push_back(SettingInfo::Action(StrId::STR_MONOSPACE_FONT, SettingAction::None));
   addReaderSetting(StrId::STR_FONT_SIZE);
   readerSettings.push_back(SettingInfo::Action(StrId::STR_MANAGE_FONTS, SettingAction::DownloadFonts));
   addReaderSetting(StrId::STR_SD_FONT_SIZE_RANGE);
@@ -777,8 +778,9 @@ inline std::vector<SettingInfo> buildReaderSettingsParentList(const std::vector<
 
 inline std::vector<SettingInfo> buildReaderFontSettingsList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> settings;
-  settings.reserve(5);
+  settings.reserve(7);
   addSettingByName(settings, allSettings, StrId::STR_FONT_FAMILY);
+  settings.push_back(SettingInfo::Action(StrId::STR_MONOSPACE_FONT, SettingAction::None));
   addSettingByName(settings, allSettings, StrId::STR_FONT_SIZE);
   addSettingByName(settings, allSettings, StrId::STR_LINE_SPACING);
   settings.push_back(SettingInfo::Action(StrId::STR_MANAGE_FONTS, SettingAction::DownloadFonts));

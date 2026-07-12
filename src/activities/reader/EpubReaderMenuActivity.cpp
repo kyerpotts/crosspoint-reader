@@ -47,6 +47,7 @@ struct ReaderLayoutSettingsSnapshot {
   uint8_t guideReadingEnabled;
   uint8_t epubRenderMode;
   char sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName)] = {};
+  char secondarySdFontFamilyName[sizeof(SETTINGS.secondarySdFontFamilyName)] = {};
 
   bool operator==(const ReaderLayoutSettingsSnapshot& other) const {
     return fontFamily == other.fontFamily && fontSize == other.fontSize &&
@@ -58,7 +59,9 @@ struct ReaderLayoutSettingsSnapshot {
            extraParagraphSpacing == other.extraParagraphSpacing &&
            forceParagraphIndents == other.forceParagraphIndents && bionicReadingEnabled == other.bionicReadingEnabled &&
            guideReadingEnabled == other.guideReadingEnabled && epubRenderMode == other.epubRenderMode &&
-           std::strncmp(sdFontFamilyName, other.sdFontFamilyName, sizeof(sdFontFamilyName)) == 0;
+           std::strncmp(sdFontFamilyName, other.sdFontFamilyName, sizeof(sdFontFamilyName)) == 0 &&
+           std::strncmp(secondarySdFontFamilyName, other.secondarySdFontFamilyName,
+                        sizeof(secondarySdFontFamilyName)) == 0;
   }
   bool operator!=(const ReaderLayoutSettingsSnapshot& other) const { return !(*this == other); }
 };
@@ -85,6 +88,9 @@ ReaderLayoutSettingsSnapshot captureReaderLayoutSettings() {
   };
   std::strncpy(snapshot.sdFontFamilyName, SETTINGS.sdFontFamilyName, sizeof(snapshot.sdFontFamilyName) - 1);
   snapshot.sdFontFamilyName[sizeof(snapshot.sdFontFamilyName) - 1] = '\0';
+  std::strncpy(snapshot.secondarySdFontFamilyName, SETTINGS.secondarySdFontFamilyName.value,
+               sizeof(snapshot.secondarySdFontFamilyName) - 1);
+  snapshot.secondarySdFontFamilyName[sizeof(snapshot.secondarySdFontFamilyName) - 1] = '\0';
   return snapshot;
 }
 

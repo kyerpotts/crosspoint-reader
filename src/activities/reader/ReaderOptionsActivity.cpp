@@ -263,8 +263,12 @@ void ReaderOptionsActivity::toggleCurrentSetting() {
   if (selectedIndex < 0 || selectedIndex >= settingsCount) return;
   const auto& setting = (*currentSettings)[selectedIndex];
 
-  if (setting.nameId == StrId::STR_FONT_FAMILY && setting.type == SettingType::ENUM) {
-    startActivityForResult(std::make_unique<FontSelectionActivity>(renderer, mappedInput, &sdFontSystem.registry()),
+  if ((setting.nameId == StrId::STR_FONT_FAMILY || setting.nameId == StrId::STR_MONOSPACE_FONT) &&
+      (setting.type == SettingType::ENUM || setting.type == SettingType::ACTION)) {
+    const FontSelectionTarget target = setting.nameId == StrId::STR_FONT_FAMILY ? FontSelectionTarget::Primary
+                                                                                : FontSelectionTarget::Secondary;
+    startActivityForResult(
+        std::make_unique<FontSelectionActivity>(renderer, mappedInput, &sdFontSystem.registry(), target),
                            [this](const ActivityResult& result) {
                              if (!result.isCancelled) {
                                persistReaderSettings();

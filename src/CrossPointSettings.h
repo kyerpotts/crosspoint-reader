@@ -1,5 +1,6 @@
 #pragma once
 #include <HalStorage.h>
+#include "FontFamilyName.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -416,6 +417,8 @@ class CrossPointSettings {
   uint8_t epubRenderMode = 0;
   // SD card font family name, including optional range suffix (empty = use built-in fontFamily)
   char sdFontFamilyName[64] = "";
+  // Optional SD card font family used for semantic monospace EPUB content.
+  FontFamilyName secondarySdFontFamilyName;
   // Show hidden files/directories (starting with '.') in the file browser (0 = hidden, 1 = show)
   uint8_t showHiddenFiles = 0;
   // Hide file extensions in the file browser right-side value column (0 = show, 1 = hide)
@@ -501,6 +504,7 @@ class CrossPointSettings {
   using SdFontIdResolver = int (*)(void* ctx, const char* familyName, uint8_t fontSize);
   SdFontIdResolver sdFontIdResolver = nullptr;
   void* sdFontResolverCtx = nullptr;
+  SdFontIdResolver secondarySdFontIdResolver = nullptr;
 
   uint16_t getPowerButtonDuration() const { return getPowerButtonWakeDuration(); }
   uint16_t getPowerButtonLongPressDuration() const { return POWER_BUTTON_LONG_PRESS_MS; }
@@ -514,6 +518,7 @@ class CrossPointSettings {
   bool changeReaderFontSize(bool larger);
   int getReaderFontId() const;
   int getBuiltInReaderFontId() const;
+  int getSecondaryReaderFontId() const;
 
   // If count_only is true, returns the number of settings items that would be written.
   uint8_t writeSettings(HalFile& file, bool count_only = false) const;

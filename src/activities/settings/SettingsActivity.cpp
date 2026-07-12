@@ -658,8 +658,12 @@ void SettingsActivity::toggleCurrentSetting() {
     openStringEditor(setting);
     return;
   }
-  if (setting.nameId == StrId::STR_FONT_FAMILY && setting.type == SettingType::ENUM) {
-    startActivityForResult(std::make_unique<FontSelectionActivity>(renderer, mappedInput, &sdFontSystem.registry()),
+  if ((setting.nameId == StrId::STR_FONT_FAMILY || setting.nameId == StrId::STR_MONOSPACE_FONT) &&
+      (setting.type == SettingType::ENUM || setting.type == SettingType::ACTION)) {
+    const FontSelectionTarget target = setting.nameId == StrId::STR_FONT_FAMILY ? FontSelectionTarget::Primary
+                                                                                : FontSelectionTarget::Secondary;
+    startActivityForResult(
+        std::make_unique<FontSelectionActivity>(renderer, mappedInput, &sdFontSystem.registry(), target),
                            [this](const ActivityResult&) {
                              SETTINGS.saveToFile();
                              rebuildSettingsLists();
@@ -686,7 +690,8 @@ void SettingsActivity::toggleCurrentSetting() {
   } else if (setting.type == SettingType::ENUM && setting.valueGetter && setting.valueSetter) {
     if (setting.nameId == StrId::STR_FONT_FAMILY) {
       // Launch font selection submenu instead of cycling
-      startActivityForResult(std::make_unique<FontSelectionActivity>(renderer, mappedInput, &sdFontSystem.registry()),
+      startActivityForResult(std::make_unique<FontSelectionActivity>(
+                                 renderer, mappedInput, &sdFontSystem.registry(), FontSelectionTarget::Primary),
                              [this](const ActivityResult&) {
                                SETTINGS.saveToFile();
                                rebuildSettingsLists();

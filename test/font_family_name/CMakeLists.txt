@@ -1,0 +1,4 @@
+add_executable(FontFamilyNameTest FontFamilyNameTest.cpp)
+target_include_directories(FontFamilyNameTest PRIVATE ${REPO_ROOT}/src)
+target_link_libraries(FontFamilyNameTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(FontFamilyNameTest)
