@@ -254,8 +254,9 @@ Binary layout:
 ### Version 65
 
 Version 65 changes ordered, unordered, and nested list marker spacing, indentation,
-and wrapped-line alignment. Complete and suspended section caches rebuild together;
-suspended partial caches use version `0xF6`.
+and wrapped-line alignment. It also makes definition terms and descriptions separate
+blocks and applies a default description indent. Complete and suspended section caches
+rebuild together; suspended partial caches use version `0xF6`.
 
 ### Version 64
 

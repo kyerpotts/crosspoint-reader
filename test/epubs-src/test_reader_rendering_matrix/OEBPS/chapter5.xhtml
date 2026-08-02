@@ -19,6 +19,16 @@
     <li>Second ordered item with a soft hyphenated word: respon&#x00AD;sibility.</li>
   </ol>
 
+  <h2>Definition List</h2>
+  <p class="note">PASS when each italic term starts on a new line, each description is indented, and the paragraph after the list starts as a separate block.</p>
+  <dl>
+    <dt class="definition-term">Large file with lots of records</dt>
+    <dd><p>A common use for Avro is storing a large file containing millions of records, all encoded with the same schema.</p></dd>
+    <dt class="definition-term">Database with individually written records</dt>
+    <dd><p>In a database, different records may be written at different points in time using different schemas.</p></dd>
+  </dl>
+  <p>Normal paragraph after the definition list.</p>
+
   <h2>Blockquote</h2>
   <blockquote>
     <p>This blockquote should be indented and italic. It contains enough text to wrap across several lines, which checks whether margin handling and inherited italic style survive layout extraction.</p>

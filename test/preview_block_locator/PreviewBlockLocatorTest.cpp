@@ -9,7 +9,8 @@ namespace {
 
 // Mirrors ChapterHtmlSlimParser's notion of a block-level tag (HEADER_TAGS + BLOCK_TAGS).
 bool isBlockTag(const char* name) {
-  static const char* const kBlockTags[] = {"h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "div", "br", "blockquote"};
+  static const char* const kBlockTags[] = {"h1", "h2",  "h3", "h4",         "h5", "h6", "p",
+                                           "li", "div", "br", "blockquote", "dl", "dt", "dd"};
   for (const char* tag : kBlockTags) {
     if (strcmp(name, tag) == 0) {
       return true;
@@ -69,6 +70,12 @@ TEST(PreviewBlockLocatorTest, PicksInnermostEnclosingBlock) {
   const std::string xml = R"(<html><body><div><blockquote><span id="a"/></blockquote></div></body></html>)";
   // html=1, body=2, div=3, blockquote=4
   EXPECT_EQ(locate(xml, "a"), 4u);
+}
+
+TEST(PreviewBlockLocatorTest, DefinitionDescriptionIsABlock) {
+  const std::string xml = R"(<html><body><dl><dt>term</dt><dd id="note"><p>description</p></dd></dl></body></html>)";
+  // html=1, body=2, dl=3, dt=4, dd=5
+  EXPECT_EQ(locate(xml, "note"), 5u);
 }
 
 TEST(PreviewBlockLocatorTest, ClosedBlocksAreNotUsedAsAncestors) {

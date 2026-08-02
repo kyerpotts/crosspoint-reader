@@ -14,6 +14,7 @@
 
 ### Fixed
 
+- EPUB definition lists now place each term and description on separate lines and indent descriptions.
 - EPUB ordered, unordered, and nested lists now keep markers and wrapped item text consistently aligned.
 - Long-pressing Up or Down in long popup lists now advances by a full page.
 - EPUB table fixes now preserve final-column widths, give dense tables enough space for leading labels, and split oversized words instead of clipping them.

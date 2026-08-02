@@ -35,6 +35,7 @@ constexpr size_t PARSE_BUFFER_SIZE = 1024;
 // Initial slab for the parse arena. Covers both style stacks (~2 KB) with headroom for growth.
 constexpr size_t PARSE_ARENA_SLAB_SIZE = 4 * 1024;
 constexpr float DEFAULT_LIST_CONTAINER_INDENT_EM = 1.0f;
+constexpr float DEFAULT_DEFINITION_DESCRIPTION_INDENT_EM = 1.0f;
 constexpr float MAX_LIST_ITEM_VERTICAL_SPACING_EM = 0.25f;
 constexpr size_t DEFAULT_BUFFERED_WORDS_BEFORE_LAYOUT = 350;
 constexpr size_t CSS_BUFFERED_WORDS_BEFORE_LAYOUT = 320;
@@ -72,7 +73,7 @@ constexpr uint32_t MIN_FREE_HEAP_FOR_RICH_TABLE = 96U * 1024U;
 constexpr uint32_t MIN_MAX_ALLOC_FOR_RICH_TABLE = 56U * 1024U;
 
 static constexpr const char* const HEADER_TAGS[] = {"h1", "h2", "h3", "h4", "h5", "h6"};
-static constexpr const char* const BLOCK_TAGS[] = {"p", "li", "ul", "ol", "div", "br", "blockquote"};
+static constexpr const char* const BLOCK_TAGS[] = {"p", "li", "ul", "ol", "div", "br", "blockquote", "dl", "dt", "dd"};
 static constexpr const char* const BOLD_TAGS[] = {"b", "strong"};
 static constexpr const char* const ITALIC_TAGS[] = {"i", "em"};
 static constexpr const char* const UNDERLINE_TAGS[] = {"u", "ins"};
@@ -2638,6 +2639,11 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         blockStyle.paddingLeft =
             static_cast<int16_t>(blockStyle.paddingLeft + emSize * DEFAULT_LIST_CONTAINER_INDENT_EM);
       }
+      if (strcmp(name, "dd") == 0 &&
+          (!self->embeddedStyle || self->isLightMode() || (!cssStyle.hasMarginLeft() && !cssStyle.hasPaddingLeft()))) {
+        blockStyle.paddingLeft =
+            static_cast<int16_t>(blockStyle.paddingLeft + emSize * DEFAULT_DEFINITION_DESCRIPTION_INDENT_EM);
+      }
       if (self->listState.inItem() && (strcmp(name, "li") == 0 || strcmp(name, "p") == 0)) {
         const auto maxSpacing = static_cast<int16_t>(emSize * MAX_LIST_ITEM_VERTICAL_SPACING_EM);
         blockStyle.marginTop = std::min(blockStyle.marginTop, maxSpacing);
@@ -2666,6 +2672,17 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       self->startNewTextBlock(accumulated.withoutBottom());
       if (!self->currentTextBlock) {
         return;
+      }
+      if (strcmp(name, "dt") == 0 && cssStyle.hasFontStyle()) {
+        StyleStackEntry entry;
+        entry.depth = self->depth;
+        entry.hasItalic = true;
+        entry.italic = cssStyle.fontStyle == CssFontStyle::Italic;
+        if (self->inlineStyleCount_ < MAX_INLINE_STYLE_DEPTH) {
+          self->inlineStyleBuf_[self->inlineStyleCount_++] = entry;
+        } else {
+          LOG_ERR("EHP", "inline style stack overflow (definition term)");
+        }
       }
       self->updateEffectiveInlineStyle();
 

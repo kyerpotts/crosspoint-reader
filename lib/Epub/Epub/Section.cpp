@@ -16,7 +16,7 @@
 
 namespace {
 constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
-// v65: list marker and hanging-indent layout changed.
+// v65: list marker, hanging-indent, and definition-list block layout changed.
 // v64: table cells split words at safe UTF-8 boundaries when hyphenation cannot fit them.
 // v63: dense eight-column tables use a wider leading label column.
 // v62: protect image-height page units from byte-density extrapolation.
